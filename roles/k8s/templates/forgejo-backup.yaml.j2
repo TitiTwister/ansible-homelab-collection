@@ -1,0 +1,331 @@
+---
+# Forgejo backup resources, rendered by the k8s role from inventory
+# variables. The forgejo-backup-image-build Job builds the toolchain image
+# (Containerfile from the forgejo-backup-image ConfigMap) and pushes it to
+# the Forgejo container registry; the forgejo-backup CronJob execs
+# `forgejo dump` inside the live Forgejo pod, stages the zip in a
+# memory-backed emptyDir (nothing touches the node's root disk), encrypts
+# it and uploads it. Secret values are base64-encoded (data, not
+# stringData) to avoid phantom patches on every kubectl apply.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: forgejo-backup
+  namespace: {{ k8s_forgejo_namespace }}
+imagePullSecrets:
+  - name: forgejo-backup-registry
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: forgejo-backup
+  namespace: {{ k8s_forgejo_namespace }}
+rules:
+  # `kubectl exec deployment/forgejo` resolves the deployment, lists its
+  # pods and creates an exec session; nothing else is granted.
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: forgejo-backup
+  namespace: {{ k8s_forgejo_namespace }}
+subjects:
+  - kind: ServiceAccount
+    name: forgejo-backup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: forgejo-backup
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: forgejo-backup-registry
+  namespace: {{ k8s_forgejo_namespace }}
+type: kubernetes.io/dockerconfigjson
+# Used by kaniko to push the toolchain image and by the CronJob to pull it.
+data:
+  .dockerconfigjson: {{ {'auths': {k8s_forgejo_backup_registry_host: {'auth': (k8s_forgejo_backup_registry_user ~ ':' ~ k8s_forgejo_backup_registry_password) | b64encode}} } | to_json | b64encode | to_json }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: forgejo-backup-s3
+  namespace: {{ k8s_forgejo_namespace }}
+type: Opaque
+data:
+  AWS_ACCESS_KEY_ID: {{ k8s_forgejo_backup_s3_key | b64encode | to_json }}
+  AWS_SECRET_ACCESS_KEY: {{ k8s_forgejo_backup_s3_key_secret | b64encode | to_json }}
+  AWS_DEFAULT_REGION: {{ k8s_forgejo_backup_s3_region | b64encode | to_json }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: forgejo-backup-cipher
+  namespace: {{ k8s_forgejo_namespace }}
+type: Opaque
+data:
+  cipher-pass: {{ k8s_forgejo_backup_cipher_pass | b64encode | to_json }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: forgejo-backup-image
+  namespace: {{ k8s_forgejo_namespace }}
+data:
+  Containerfile: |
+    # Forgejo backup toolchain image: everything the backup script needs in
+    # a single container. Built by the forgejo-backup-image-build kaniko Job
+    # and pushed to the Forgejo container registry. Rebuild after changes:
+    # bump k8s_forgejo_backup_image_tag (or delete the Job) and re-run the
+    # playbook. Works with any OCI builder.
+    FROM alpine:3.22
+
+    # bash for the script, openssl for encryption, python3 for the zip
+    # integrity check, aws-cli for the S3 upload, curl to fetch kubectl.
+    # coreutils pins GNU stat/head semantics (busybox stat -c and negative
+    # head -n counts differ).
+    RUN apk add --no-cache bash openssl python3 aws-cli curl ca-certificates coreutils && \
+        curl -fsSL "https://dl.k8s.io/release/v{{ k8s_forgejo_backup_kubectl_version }}/bin/linux/$(uname -m | sed 's/^x86_64$/amd64/; s/^aarch64$/arm64/')/kubectl" \
+          -o /usr/local/bin/kubectl && \
+        chmod 0755 /usr/local/bin/kubectl
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: forgejo-backup-script
+  namespace: {{ k8s_forgejo_namespace }}
+data:
+  backup.sh: |
+    #!/bin/bash
+    # Runs in the backup container of the forgejo-backup CronJob. Streams
+    # `forgejo dump` out of the live Forgejo pod over kubectl
+    # (RBAC-restricted ServiceAccount), verifies the zip, encrypts it and
+    # uploads it to S3. S3 credentials come from the forgejo-backup-s3
+    # Secret (env), the cipher passphrase from the forgejo-backup-cipher
+    # Secret (file). The dump contains the git repositories, LFS objects,
+    # attachments, avatars, packages, app.ini/custom and a native database
+    # dump (forgejo-db.sql). Staging happens in /work, a memory-backed
+    # emptyDir, so neither the plaintext zip nor its encrypted copy ever
+    # lands on the node's root disk. Job metrics are pushed to the
+    # Prometheus pushgateways at the end, whatever the outcome.
+    set -euo pipefail
+    umask 077
+
+    BUCKET="{{ k8s_forgejo_backup_s3_bucket }}"
+    PREFIX="{{ k8s_forgejo_backup_s3_prefix }}"
+    ENDPOINT="https://{{ k8s_forgejo_backup_s3_endpoint }}"
+    RETENTION={{ k8s_forgejo_backup_retention | int }}
+    ITERATIONS={{ k8s_forgejo_backup_pbkdf2_iterations | int }}
+    CIPHER_PASS_FILE="/etc/forgejo-backup/cipher-pass"
+    NAMESPACE="{{ k8s_forgejo_namespace }}"
+    # /work is a memory-backed emptyDir: the dump and its encrypted copy
+    # must never land on the node's root disk. mktemp fails fast if the
+    # volume is ever removed from the CronJob.
+    WORK_DIR="$(mktemp -d -p /work)"
+    # The emptyDir dies with the pod, but clean up on any exit anyway.
+    trap 'rm -rf "$WORK_DIR"' EXIT
+
+    TS="$(date -u +%Y%m%dT%H%M%SZ)"
+    OBJECT="forgejo-dump-$TS.zip.enc"
+    DUMP_FILE="$WORK_DIR/forgejo-dump-$TS.zip"
+    ENC_FILE="$WORK_DIR/$OBJECT"
+    S3_URL="s3://$BUCKET/$PREFIX/$OBJECT"
+    START_TS="$(date +%s)"
+
+    # Push backup job metrics to the Prometheus pushgateways. Best-effort:
+    # push failures never fail the backup. Two groups: a per-run group
+    # replaced on every run, and a success group replaced only on success
+    # so the last-success timestamp survives failing runs (staleness
+    # alerting). URL group labels become metric labels. Payloads are built
+    # with printf because metric lines must not carry leading whitespace,
+    # which the YAML block-scalar indentation would otherwise inject.
+    push_metrics() {
+        local rc="$1" gw ok payload
+        local duration="$(( $(date +%s) - START_TS ))"
+        ok=0
+        if [ "$rc" -eq 0 ]; then ok=1; fi
+        # printf '%s\n' restores the trailing newline stripped by the
+        # $(...) command substitution; the Prometheus text format requires
+        # every line, including the last, to end with \n.
+        payload="$(printf '# TYPE forgejo_backup_last_run_success gauge\nforgejo_backup_last_run_success %s\n# TYPE forgejo_backup_last_run_duration_seconds gauge\nforgejo_backup_last_run_duration_seconds %s\n' "${ok}" "${duration}")"
+        for gw in {{ k8s_forgejo_backup_pushgateway_urls | join(' ') }}; do
+            printf '%s\n' "$payload" | curl -m 10 -s --connect-timeout 5 \
+                --data-binary @- "${gw}/metrics/job/forgejo_backup_run/instance/forgejo" || true
+        done
+        if [ "$ok" -eq 1 ]; then
+            payload="$(printf '# TYPE forgejo_backup_last_success_timestamp_seconds gauge\nforgejo_backup_last_success_timestamp_seconds %s\n' "$(date +%s)")"
+            for gw in {{ k8s_forgejo_backup_pushgateway_urls | join(' ') }}; do
+                printf '%s\n' "$payload" | curl -m 10 -s --connect-timeout 5 \
+                    --data-binary @- "${gw}/metrics/job/forgejo_backup/instance/forgejo" || true
+            done
+        fi
+    }
+
+    main() {
+    # 1. `forgejo dump` fatals when the repository root is missing, which is
+    #    the case on a fresh instance until the first repository is created;
+    #    mkdir -p is idempotent and matches what Forgejo itself creates.
+    kubectl -n "$NAMESPACE" exec deployment/forgejo -- \
+        mkdir -p /data/git/gitea-repositories
+
+    # 2. Stream the dump out of the running Forgejo pod. Archive data goes
+    #    to stdout; kubectl chatter stays on stderr.
+    kubectl -n "$NAMESPACE" exec deployment/forgejo -- \
+        forgejo dump --quiet --type zip --skip-log --file - > "$DUMP_FILE"
+
+    # 3. Integrity gate: fail before anything reaches the bucket.
+    python3 -m zipfile -t "$DUMP_FILE"
+
+    # 4. Client-side encryption; without the passphrase the backups are
+    #    unreadable.
+    openssl enc -aes-256-cbc -salt -pbkdf2 -iter "$ITERATIONS" \
+        -in "$DUMP_FILE" -out "$ENC_FILE" -pass "file:$CIPHER_PASS_FILE"
+
+    # 5. Upload, then verify the stored object matches the local size.
+    aws s3 cp "$ENC_FILE" "$S3_URL" --endpoint-url "$ENDPOINT" >/dev/null
+    LOCAL_SIZE="$(stat -c %s "$ENC_FILE")"
+    REMOTE_SIZE="$(aws s3 ls "s3://$BUCKET/$PREFIX/" --endpoint-url "$ENDPOINT" \
+        | awk -v object="$OBJECT" '$4 == object { print $3 }')"
+    if [[ -z "$REMOTE_SIZE" || "$REMOTE_SIZE" != "$LOCAL_SIZE" ]]; then
+        echo "upload verification failed: $S3_URL (local $LOCAL_SIZE bytes, remote '${REMOTE_SIZE:-absent}')" >&2
+        exit 1
+    fi
+
+    # 6. Prune: object keys sort chronologically, so keep the newest
+    #    RETENTION. Keys contain no spaces (aws s3 ls output is
+    #    whitespace-separated).
+    DELETE_LIST="$(aws s3 ls "s3://$BUCKET/$PREFIX/" --endpoint-url "$ENDPOINT" \
+        | awk '{ print $4 }' | sort | head -n -"$RETENTION")"
+    if [[ -n "$DELETE_LIST" ]]; then
+        while read -r OBJ; do
+            [[ -n "$OBJ" ]] || continue
+            aws s3 rm "s3://$BUCKET/$PREFIX/$OBJ" --endpoint-url "$ENDPOINT" >/dev/null
+        done <<< "$DELETE_LIST"
+        echo "pruned $(wc -l <<< "$DELETE_LIST") backup(s), kept $RETENTION"
+    fi
+
+    echo "Forgejo backup complete: $S3_URL ($LOCAL_SIZE bytes)"
+    }
+
+    rc=0
+    main || rc=$?
+    push_metrics "$rc"
+    exit "$rc"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: forgejo-backup-image-build
+  namespace: {{ k8s_forgejo_namespace }}
+spec:
+  backoffLimit: 2
+  # A completed Job is not re-run by kubectl apply; delete the Job and
+  # re-run the playbook (or bump k8s_forgejo_backup_image_tag) to rebuild.
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: kaniko
+          image: {{ k8s_forgejo_backup_kaniko_image }}
+          args:
+            - --dockerfile=/workspace/Containerfile
+            - --context=dir:///workspace
+            - --destination={{ k8s_forgejo_backup_image }}
+            - --snapshot-mode=redo
+            # The Forgejo registry certificate is signed by the internal
+            # CA; kaniko's own bundle only covers public CAs.
+            - --registry-certificate={{ k8s_forgejo_backup_registry_host }}=/certs/ca.crt
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+              readOnly: true
+            - name: dockerconfig
+              mountPath: /kaniko/.docker
+              readOnly: true
+            - name: ca-bundle
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: workspace
+          configMap:
+            name: forgejo-backup-image
+        - name: dockerconfig
+          secret:
+            secretName: forgejo-backup-registry
+            items:
+              - key: .dockerconfigjson
+                path: config.json
+        - name: ca-bundle
+          secret:
+            secretName: forgejo-ca-bundle
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: forgejo-backup
+  namespace: {{ k8s_forgejo_namespace }}
+spec:
+  schedule: "{{ k8s_forgejo_backup_schedule }}"
+  # Never overlap runs; a slow dump must not race the next schedule slot.
+  concurrencyPolicy: Forbid
+  # Completed job pods pin their writable layers on the node that ran
+  # them; keep a single success for status visibility.
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # Hard cap so a hung dump cannot block the schedule forever.
+      activeDeadlineSeconds: 3600
+      template:
+        spec:
+          serviceAccountName: forgejo-backup
+          restartPolicy: Never
+          containers:
+            - name: backup
+              image: {{ k8s_forgejo_backup_image }}
+              # Always re-resolve the tag so toolchain rebuilds are picked
+              # up without touching the CronJob.
+              imagePullPolicy: Always
+              command: [/bin/bash, /scripts/backup.sh]
+              envFrom:
+                - secretRef:
+                    name: forgejo-backup-s3
+              env:
+                # aws-cli >= 2.23 sends trailing CRC32 checksums on
+                # multipart uploads by default; S3-compatible endpoints
+                # that lack the feature (Outscale OOS) reject them.
+                - name: AWS_REQUEST_CHECKSUM_CALCULATION
+                  value: when_required
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+                  readOnly: true
+                - name: work
+                  mountPath: /work
+                - name: cipher
+                  mountPath: /etc/forgejo-backup
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: forgejo-backup-script
+                defaultMode: 0755
+            # Memory-backed: the dump and its encrypted copy (~2x dump
+            # size, ~600M peak) never touch the node's root disk.
+            - name: work
+              emptyDir:
+                medium: Memory
+            - name: cipher
+              secret:
+                secretName: forgejo-backup-cipher
+                defaultMode: 0400

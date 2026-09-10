@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: common
+  namespace: tititwister
+  author: TitiTwister
+  description: Common baseline configuration (DNS resolvers, data disks)
+  license: Beerware
+  min_ansible_version: "2.18"
+  platforms:
+    - name: EL
+      versions: ["9"]
+  galaxy_tags: [system, baseline]
+
+dependencies: []

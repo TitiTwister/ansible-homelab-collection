@@ -1,0 +1,214 @@
+---
+# PostgreSQL HA cluster role - defaults
+# Override these in inventory group_vars for your environment
+
+# ------------------------------------------------------------------------------
+# Versions and packages
+# ------------------------------------------------------------------------------
+postgresql_version: "17"
+postgresql_service_name: "postgresql-{{ postgresql_version }}"
+
+# PGDG repository RPM for Rocky/RHEL/Alma
+postgresql_pgdg_repo_url: >-
+  https://download.postgresql.org/pub/repos/yum/reporpms/EL-{{
+  ansible_facts.distribution_major_version }}-x86_64/pgdg-redhat-repo-latest.noarch.rpm
+
+# Packages to install via dnf
+postgresql_packages:
+  - "postgresql{{ postgresql_version | replace('.', '') }}-server"
+  - "postgresql{{ postgresql_version | replace('.', '') }}-contrib"
+
+postgresql_patroni_package: "patroni"
+
+# etcd is not packaged for Rocky 10, so we install the upstream binary.
+postgresql_etcd_version: "3.5.21"
+postgresql_etcd_download_url: "https://github.com/etcd-io/etcd/releases/download/v{{ postgresql_etcd_version
+  }}/etcd-v{{ postgresql_etcd_version }}-linux-amd64.tar.gz"
+postgresql_etcd_install_dir: "/usr/local/bin"
+postgresql_etcd_user: "etcd"
+postgresql_etcd_group: "etcd"
+
+# ------------------------------------------------------------------------------
+# Cluster identity
+# ------------------------------------------------------------------------------
+postgresql_cluster_name: "postgresql"
+
+# Inventory group containing PostgreSQL/Patroni/etcd nodes
+postgresql_group: "postgresql"
+
+# Bootstrap primary node defaults to the first host in the group
+postgresql_bootstrap_host: "{{ groups[postgresql_group] | first }}"
+
+# ------------------------------------------------------------------------------
+# Networking
+# ------------------------------------------------------------------------------
+postgresql_listen_addresses: "0.0.0.0"
+postgresql_port: 5432
+postgresql_patroni_rest_api_port: 8008
+
+# etcd client/peer ports
+postgresql_etcd_client_port: 2379
+postgresql_etcd_peer_port: 2380
+
+# etcd metrics listener port (serves /metrics and health endpoints)
+postgresql_etcd_metrics_port: 2381
+
+# Network allowed to reach PostgreSQL without TLS (used in pg_hba when
+# postgresql_tls_enabled is false)
+postgresql_hba_network: "10.0.0.0/8"
+
+# ------------------------------------------------------------------------------
+# Paths
+# ------------------------------------------------------------------------------
+# Data directory. Designed to live on a dedicated disk mounted at /var/lib/pgsql
+# by the common role's `disks` variable.
+postgresql_data_dir: "/var/lib/pgsql/{{ postgresql_version }}/data"
+postgresql_home_dir: "/var/lib/pgsql"
+
+postgresql_patroni_config_dir: "/etc/patroni"
+postgresql_patroni_config_file: "{{ postgresql_patroni_config_dir }}/patroni.yml"
+
+postgresql_etcd_data_dir: "/var/lib/etcd"
+postgresql_etcd_config_file: "/etc/etcd/etcd.conf.yml"
+
+# ------------------------------------------------------------------------------
+# Replication and DCS settings
+# ------------------------------------------------------------------------------
+# Replication user used by Patroni
+postgresql_replication_username: "replicator"
+
+# Superuser and rewind credentials are set via Ansible vars / vault.
+# Override these in your inventory group_vars or vault file.
+# postgresql_superuser_username: "postgres"
+# postgresql_superuser_password: "CHANGE_ME"
+# postgresql_replication_password: "CHANGE_ME"
+
+postgresql_patroni_ttl: 30
+postgresql_patroni_loop_wait: 10
+postgresql_patroni_retry_timeout: 10
+postgresql_patroni_maximum_lag_on_failover: 1048576
+
+# ------------------------------------------------------------------------------
+# Backups (pgBackRest)
+# ------------------------------------------------------------------------------
+# When enabled, pgBackRest is installed on every node, WAL archiving is
+# activated on the cluster and scheduled backups run on the Patroni leader.
+# Requires S3 repository credentials (postgresql_backup_s3_*).
+postgresql_backup_enabled: false
+
+postgresql_backup_stanza: "main"
+postgresql_backup_config_file: "/etc/pgbackrest/pgbackrest.conf"
+postgresql_backup_log_dir: "/var/log/pgbackrest"
+
+# Local PostgreSQL data directory (PGDATA) backing the stanza.
+postgresql_backup_pg1_path: "{{ postgresql_data_dir }}"
+
+# S3-compatible repository
+postgresql_backup_s3_bucket: "CHANGE_ME"
+postgresql_backup_s3_endpoint: "CHANGE_ME"
+postgresql_backup_s3_region: "CHANGE_ME"
+postgresql_backup_s3_prefix: "/pgbackrest"
+
+# Repository credentials - define these in the inventory vault
+# (see vault_backup.yml), e.g. vault_postgresql_backup_s3_key.
+# postgresql_backup_s3_key: "CHANGE_ME"
+# postgresql_backup_s3_key_secret: "CHANGE_ME"
+
+# Client-side repository encryption
+postgresql_backup_cipher_enabled: true
+# postgresql_backup_cipher_pass: "CHANGE_ME"
+
+# Backup policy: number of full backups to retain (also the PITR window),
+# compression and parallelism.
+postgresql_backup_retention_full: 4
+postgresql_backup_compress_type: "zst"
+postgresql_backup_compress_level: 3
+postgresql_backup_process_max: 2
+postgresql_backup_start_fast: true
+
+# Scheduling (systemd OnCalendar expressions)
+postgresql_backup_full_calendar: "Sun *-*-* 01:00:00"
+postgresql_backup_diff_calendar: "Mon..Sat *-*-* 01:00:00"
+postgresql_backup_check_calendar: "*-*-* 05:00:00"
+
+# User running backups, checks and archive commands (must read PGDATA and
+# connect to PostgreSQL via the local unix socket).
+postgresql_backup_user: "postgres"
+
+# Seed a first full backup during the first role run.
+postgresql_backup_seed_first_backup: true
+
+# Pushgateway URLs (http://host:9091) receiving backup job metrics from
+# the pgbackrest-push wrapper. Empty disables metric pushes; the wrapper
+# then only wraps the pgBackRest call.
+postgresql_backup_pushgateway_urls: []
+
+# Packages installed when backups are enabled (PGDG repository already
+# configured by the role).
+postgresql_backup_packages:
+  - pgbackrest
+  - curl
+
+# ------------------------------------------------------------------------------
+# WAL archiving (derived from backup settings, can be overridden explicitly)
+# ------------------------------------------------------------------------------
+# "on" archives WAL on the leader only. pgBackRest's archive-mode-check
+# disallows "always" (multiple archivers can collide after a divergence);
+# a promoted standby archives its whole pg_wal anyway.
+# Changing archive_mode requires a PostgreSQL restart (handled by Patroni).
+postgresql_archive_mode: "{{ 'on' if postgresql_backup_enabled | default(false) | bool else 'off' }}"
+# Command run for each completed WAL segment. Empty disables the command.
+postgresql_archive_command: >-
+  {{ 'pgbackrest --stanza=' ~ postgresql_backup_stanza ~ ' archive-push %p'
+     if postgresql_backup_enabled | default(false) | bool else '' }}
+# Force a WAL segment switch at most every N seconds (limits archiving lag).
+postgresql_archive_timeout: "{{ 60 if postgresql_backup_enabled | default(false) | bool else 0 }}"
+
+# ------------------------------------------------------------------------------
+# TLS
+# ------------------------------------------------------------------------------
+postgresql_tls_enabled: false
+
+# Source certificate files created by the certificate role
+# Use the chain file so PostgreSQL presents the server cert + intermediate CA
+postgresql_tls_cert_src: "/etc/ssl/certs/postgresql-chain.crt"
+postgresql_tls_key_src: "/etc/ssl/private/postgresql.key"
+postgresql_tls_ca_src: "/etc/ssl/certs/root_ca.crt"
+
+# Destination paths for PostgreSQL (owned by postgres)
+postgresql_tls_dir: "/var/lib/pgsql/tls"
+postgresql_tls_cert_file: "{{ postgresql_tls_dir }}/server.crt"
+postgresql_tls_key_file: "{{ postgresql_tls_dir }}/server.key"
+postgresql_tls_ca_file: "{{ postgresql_tls_dir }}/ca.crt"
+
+# ------------------------------------------------------------------------------
+# Firewall
+# ------------------------------------------------------------------------------
+postgresql_firewall_zone: "public"
+
+# ------------------------------------------------------------------------------
+# Initial databases and users
+# ------------------------------------------------------------------------------
+# List of databases to create after bootstrap
+# postgresql_databases:
+#   - name: myapp
+#     owner: myapp
+
+# List of roles/users to create after bootstrap
+# postgresql_users:
+#   - name: myapp
+#     password: "CHANGE_ME"
+#     priv: ALL
+
+# Optional monitoring user for postgres_exporter.
+# Define this in group_vars to create the user automatically via Patroni bootstrap.
+# Example:
+# postgresql_monitoring_user:
+#   name: postgres_exporter
+#   password: "{{ vault_postgres_exporter_password }}"
+postgresql_monitoring_user: {}
+
+# Host used for post-bootstrap DDL operations (granting roles, etc.).
+# During first bootstrap this defaults to the bootstrap host.
+# Once a HAProxy/VIP write endpoint is available, override this in group_vars.
+postgresql_management_host: "{{ hostvars[postgresql_bootstrap_host]['ansible_host'] | default(postgresql_bootstrap_host) }}"

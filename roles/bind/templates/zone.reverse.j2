@@ -1,0 +1,22 @@
+; Reverse zone for {{ item.network }}.0
+; Managed by Ansible
+$TTL {{ bind_zone_ttl }}
+@   IN  SOA {{ bind_primary_ns }}.{{ bind_zone_name }}. {{ bind_soa_email | replace('@', '.') }}. (
+        {{ bind_computed_serial }}  ; serial
+        {{ bind_zone_refresh }}   ; refresh
+        {{ bind_zone_retry }}     ; retry
+        {{ bind_zone_expire }}    ; expire
+        {{ bind_zone_minimum }}   ; minimum TTL
+)
+
+; Name servers
+@       IN  NS      {{ bind_primary_ns }}.{{ bind_zone_name }}.
+@       IN  NS      {{ bind_secondary_ns }}.{{ bind_zone_name }}.
+
+; PTR Records
+{% for record in bind_records %}
+{% set octets = record.ip.split('.') %}
+{% if octets[0] ~ '.' ~ octets[1] ~ '.' ~ octets[2] == item.network %}
+{{ "%-12s" | format(octets[3]) }} IN  PTR     {{ record.name }}.{{ bind_zone_name }}.
+{% endif %}
+{% endfor %}

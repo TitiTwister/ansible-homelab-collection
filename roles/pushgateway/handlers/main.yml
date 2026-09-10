@@ -1,0 +1,8 @@
+---
+# Handlers for pushgateway role
+
+- name: Restart pushgateway
+  ansible.builtin.systemd:
+    name: pushgateway
+    state: restarted
+    daemon_reload: true

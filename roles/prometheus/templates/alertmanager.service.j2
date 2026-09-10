@@ -1,0 +1,27 @@
+[Unit]
+Description=Alertmanager
+Documentation=https://prometheus.io/docs/alerting/latest/alertmanager/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=alertmanager
+Group=alertmanager
+ExecStart=/usr/local/bin/alertmanager \
+  --config.file={{ prometheus_alertmanager_config_dir }}/alertmanager.yml \
+  --storage.path={{ prometheus_alertmanager_data_dir }} \
+  --web.listen-address=0.0.0.0:{{ prometheus_alertmanager_port }} \
+  --cluster.listen-address=0.0.0.0:{{ prometheus_alertmanager_cluster_port }} \
+{% for peer in groups[prometheus_group] | default([]) %}
+{% if peer != inventory_hostname %}
+  --cluster.peer={{ hostvars[peer].ansible_host | default(peer) }}:{{ prometheus_alertmanager_cluster_port }} \
+{% endif %}
+{% endfor %}
+  --cluster.advertise-address={{ ansible_host | default(ansible_facts.default_ipv4.address) }}:{{ prometheus_alertmanager_cluster_port }}
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

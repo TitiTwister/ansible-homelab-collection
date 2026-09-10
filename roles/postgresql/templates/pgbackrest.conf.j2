@@ -1,0 +1,33 @@
+# pgBackRest configuration for stanza '{{ postgresql_backup_stanza }}'
+# Managed by Ansible - do not edit manually
+
+[global]
+# Repository: S3-compatible object storage
+repo1-type=s3
+repo1-path={{ postgresql_backup_s3_prefix }}
+repo1-s3-bucket={{ postgresql_backup_s3_bucket }}
+repo1-s3-endpoint={{ postgresql_backup_s3_endpoint }}
+repo1-s3-region={{ postgresql_backup_s3_region }}
+repo1-s3-key={{ postgresql_backup_s3_key }}
+repo1-s3-key-secret={{ postgresql_backup_s3_key_secret }}
+repo1-s3-uri-style=path
+
+# Retention
+repo1-retention-full={{ postgresql_backup_retention_full }}
+{% if postgresql_backup_cipher_enabled | bool %}
+# Client-side repository encryption
+repo1-cipher-type=aes-256-cbc
+repo1-cipher-pass={{ postgresql_backup_cipher_pass }}
+{% endif %}
+# Performance
+process-max={{ postgresql_backup_process_max }}
+compress-type={{ postgresql_backup_compress_type }}
+compress-level={{ postgresql_backup_compress_level }}
+start-fast={{ 'y' if postgresql_backup_start_fast | bool else 'n' }}
+
+# Logging
+log-level-console=info
+log-level-file=info
+
+[{{ postgresql_backup_stanza }}]
+pg1-path={{ postgresql_backup_pg1_path }}

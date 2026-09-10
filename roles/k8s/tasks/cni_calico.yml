@@ -1,0 +1,30 @@
+---
+# Deploy Calico CNI
+
+- name: Download Tigera Calico operator manifest
+  ansible.builtin.get_url:
+    url: "https://raw.githubusercontent.com/projectcalico/calico/{{ k8s_calico_version }}/manifests/tigera-operator.yaml"
+    dest: /tmp/tigera-operator.yaml
+    mode: "0644"
+
+- name: Download Calico custom resources manifest
+  ansible.builtin.get_url:
+    url: "https://raw.githubusercontent.com/projectcalico/calico/{{ k8s_calico_version }}/manifests/custom-resources.yaml"
+    dest: /tmp/custom-resources.yaml
+    mode: "0644"
+
+- name: Apply Tigera Calico operator
+  ansible.builtin.command: kubectl apply -f /tmp/tigera-operator.yaml
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_calico_operator
+  changed_when: "'created' in k8s_calico_operator.stdout or 'configured' in k8s_calico_operator.stdout"
+
+- name: Patch Calico installation with custom pod CIDR
+  ansible.builtin.shell: |
+    set -o pipefail
+    sed -e 's|cidr: 192.168.0.0/16|cidr: {{ k8s_pod_subnet }}|g' /tmp/custom-resources.yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_calico_cr
+  changed_when: "'created' in k8s_calico_cr.stdout or 'configured' in k8s_calico_cr.stdout"

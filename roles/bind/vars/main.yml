@@ -1,0 +1,10 @@
+---
+# Internal constants for zone file serial handling
+
+# Captures the serial value from a zone file SOA record.
+__bind_serial_extract_pattern: '\n\s+([0-9]{10})\s+; serial'
+
+# Normalizes the serial line so zone files can be compared without the
+# serial value itself (it is recomputed on every deployment).
+__bind_serial_strip_pattern: '\s+[0-9]{10}\s+; serial'
+__bind_serial_strip_replacement: ' SERIAL'

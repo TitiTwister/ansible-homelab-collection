@@ -1,0 +1,47 @@
+---
+# BIND DNS Role - defaults (generic placeholders)
+# Override these in inventory group_vars for your environment
+
+# Zone configuration
+bind_zone_name: "home.lab"
+bind_zone_ttl: 3600
+bind_zone_refresh: 3600
+bind_zone_retry: 600
+bind_zone_expire: 604800
+bind_zone_minimum: 86400
+
+# SOA
+bind_soa_email: "admin.home.lab"
+bind_soa_serial: 2026040701
+
+# Primary/Secondary
+bind_primary_ns: "ns-1"
+bind_secondary_ns: "ns-2"
+bind_primary_ip: "192.168.1.1"
+bind_secondary_ip: "192.168.1.2"
+
+# Forwarders (for recursive resolution of external domains)
+bind_forwarders:
+  - "1.1.1.1"
+  - "9.9.9.9"
+
+# ACL - networks allowed to query and recurse
+bind_allowed_nets:
+  - "192.168.0.0/16"
+  - "127.0.0.0/8"
+
+# Reverse zones to configure
+bind_reverse_zones: []
+
+# Host records (A + PTR)
+bind_records: []
+
+# TSIG key for dynamic DNS updates (RFC2136)
+# Override these with secure values, ideally in an Ansible Vault file
+bind_tsig_key_name: "certbot-updates"
+bind_tsig_key_algorithm: "hmac-sha256"
+bind_tsig_key_secret: ""
+
+# File paths
+bind_config_dir: "/etc"
+bind_zones_dir: "/var/named"

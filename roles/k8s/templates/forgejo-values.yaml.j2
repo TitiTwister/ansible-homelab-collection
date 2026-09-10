@@ -1,0 +1,90 @@
+---
+# Forgejo Helm values, rendered by the k8s role from inventory variables.
+strategy:
+  type: Recreate
+
+# MetalLB v0.14 API: both services request the same IP and share it via a
+# matching allow-shared-ip key (distinct ports, Cluster traffic policy).
+# MetalLB >= 0.15 renames these to metallb.io/loadBalancerIPs and
+# metallb.io/share-ipv4, keeping the old ones honored as deprecated.
+service:
+  http:
+    type: LoadBalancer
+    port: 80
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "{{ k8s_forgejo_loadbalancer_ip }}"
+      metallb.universe.tf/allow-shared-ip: "forgejo"
+  ssh:
+    type: LoadBalancer
+    port: 22
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "{{ k8s_forgejo_loadbalancer_ip }}"
+      metallb.universe.tf/allow-shared-ip: "forgejo"
+
+persistence:
+  enabled: true
+  create: true
+  claimName: forgejo-data
+  size: {{ k8s_forgejo_persistence_size }}
+{% if k8s_forgejo_storage_class | length > 0 %}
+  storageClass: {{ k8s_forgejo_storage_class }}
+{% endif %}
+
+# The CA bundle secret holds only the step-ca root and intermediate. It is
+# mounted into every container and scanned as an extra Go trust directory
+# via SSL_CERT_DIR below: Forgejo's pgx driver has no libpq-style
+# ~/.postgresql/root.crt fallback, so the step-ca roots must join the Go
+# system pool. Public roots come from each image's own /etc/ssl/certs.
+extraVolumes:
+  - name: forgejo-ca-bundle
+    secret:
+      secretName: forgejo-ca-bundle
+
+extraInitVolumeMounts:
+  - name: forgejo-ca-bundle
+    mountPath: /forgejo-ca
+    readOnly: true
+
+extraContainerVolumeMounts:
+  - name: forgejo-ca-bundle
+    mountPath: /forgejo-ca
+    readOnly: true
+
+# Injected by the chart into all containers (init and main). Go scans both
+# directories, trusting the step-ca roots and the image's public roots.
+deployment:
+  env:
+    - name: SSL_CERT_DIR
+      value: /forgejo-ca:/etc/ssl/certs
+
+gitea:
+  admin:
+    existingSecret: forgejo-admin-secret
+    passwordMode: initialOnlyRequireReset
+    email: {{ k8s_forgejo_admin_email | to_json }}
+
+  # The database password never appears in Helm values; it is injected as an
+  # environment variable from the forgejo-db-secret Secret.
+  additionalConfigFromEnvs:
+    - name: FORGEJO__DATABASE__PASSWD
+      valueFrom:
+        secretKeyRef:
+          name: forgejo-db-secret
+          key: password
+
+  config:
+    server:
+      DOMAIN: {{ k8s_forgejo_hostname }}
+      ROOT_URL: https://{{ k8s_forgejo_hostname }}/
+      SSH_DOMAIN: {{ k8s_forgejo_ssh_hostname }}
+      # Port advertised in SSH clone URLs (not the container listen port).
+      SSH_PORT: {{ k8s_forgejo_ssh_port }}
+      # The chart couples this to service.http.port; keep the container on an
+      # unprivileged port while the service exposes port 80.
+      HTTP_PORT: 3000
+    database:
+      DB_TYPE: postgres
+      HOST: {{ k8s_forgejo_db_host }}:{{ k8s_forgejo_db_port }}
+      NAME: {{ k8s_forgejo_db_name }}
+      USER: {{ k8s_forgejo_db_user }}
+      SSL_MODE: verify-full

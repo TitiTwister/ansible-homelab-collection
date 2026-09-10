@@ -1,0 +1,14 @@
+---
+# Headlamp Helm values, rendered by the k8s role from inventory variables.
+# The chart creates the ServiceAccount and a cluster-admin
+# ClusterRoleBinding (admin web UI). Exposed as a NodePort; the HAProxy
+# headlamp backend terminates TLS in front of it.
+serviceAccount:
+  create: true
+  name: {{ k8s_headlamp_serviceaccount }}
+clusterRoleBinding:
+  create: true
+  clusterRoleName: cluster-admin
+service:
+  type: NodePort
+  nodePort: {{ k8s_headlamp_nodeport }}

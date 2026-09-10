@@ -1,0 +1,65 @@
+---
+# Install postgres_exporter
+
+- name: Add postgres_exporter user
+  ansible.builtin.user:
+    name: "{{ postgres_exporter_user }}"
+    system: true
+    shell: /bin/false
+    create_home: false
+
+- name: Ensure postgres_exporter config directory exists
+  ansible.builtin.file:
+    path: "{{ postgres_exporter_config_dir }}"
+    state: directory
+    owner: "{{ postgres_exporter_user }}"
+    group: "{{ postgres_exporter_group }}"
+    mode: '0755'
+
+- name: Deploy postgres_exporter environment file
+  ansible.builtin.template:
+    src: postgres_exporter.env.j2
+    dest: "{{ postgres_exporter_config_dir }}/postgres_exporter.env"
+    owner: "{{ postgres_exporter_user }}"
+    group: "{{ postgres_exporter_group }}"
+    mode: '0600'
+  notify: Restart postgres_exporter
+
+- name: Download postgres_exporter
+  ansible.builtin.get_url:
+    url: "https://github.com/prometheus-community/postgres_exporter/releases/download/v{{
+      postgres_exporter_version }}/postgres_exporter-{{ postgres_exporter_version
+      }}.linux-amd64.tar.gz"
+    dest: "/tmp/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64.tar.gz"
+    mode: '0644'
+
+- name: Extract postgres_exporter
+  ansible.builtin.unarchive:
+    src: "/tmp/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64.tar.gz"
+    dest: /tmp/
+    remote_src: true
+    creates: "/tmp/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64"
+  when: not ansible_check_mode
+
+- name: Install postgres_exporter binary
+  ansible.builtin.copy:
+    src: "/tmp/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64/postgres_exporter"
+    dest: "{{ postgres_exporter_install_dir }}/postgres_exporter"
+    mode: '0755'
+    remote_src: true
+  notify: Restart postgres_exporter
+  when: not ansible_check_mode
+
+- name: Deploy postgres_exporter systemd service
+  ansible.builtin.template:
+    src: postgres_exporter.service.j2
+    dest: /etc/systemd/system/postgres_exporter.service
+    mode: '0644'
+  notify: Restart postgres_exporter
+
+- name: Enable and start postgres_exporter
+  ansible.builtin.systemd:
+    name: postgres_exporter
+    enabled: true
+    state: started
+    daemon_reload: true

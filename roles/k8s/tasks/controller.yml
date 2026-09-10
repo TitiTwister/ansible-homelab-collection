@@ -1,0 +1,116 @@
+---
+# Configure a Kubernetes controller/admin VM.
+# Controllers are not cluster members; they only get client tooling and
+# a working kubeconfig for kubectl/helm administration.
+
+- name: Add Kubernetes repository
+  ansible.builtin.yum_repository:
+    name: kubernetes
+    description: Kubernetes
+    baseurl: "https://pkgs.k8s.io/core:/stable:/v{{ k8s_kubernetes_version.split('.')[:2] | join('.') }}/rpm/"
+    gpgcheck: true
+    gpgkey: "https://pkgs.k8s.io/core:/stable:/v{{ k8s_kubernetes_version.split('.')[:2] | join('.') }}/rpm/repodata/repomd.xml.key"
+    enabled: true
+
+- name: Install kubectl
+  ansible.builtin.dnf:
+    name: "kubectl-{{ k8s_kubernetes_version_rpm }}"
+    state: present
+    disable_excludes: kubernetes
+
+- name: Install optional kubeadm on controller
+  ansible.builtin.dnf:
+    name: "kubeadm-{{ k8s_kubernetes_version_rpm }}"
+    state: present
+    disable_excludes: kubernetes
+  when: k8s_controller_install_kubeadm | bool
+
+- name: Install Helm
+  ansible.builtin.unarchive:
+    src: "https://get.helm.sh/helm-v{{ k8s_helm_version }}-linux-amd64.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    include:
+      - linux-amd64/helm
+    extra_opts:
+      - "--strip-components=1"
+    creates: /usr/local/bin/helm
+
+- name: Install k9s terminal UI
+  ansible.builtin.unarchive:
+    src: "https://github.com/derailed/k9s/releases/download/v{{ k8s_k9s_version }}/k9s_linux_amd64.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    include:
+      - k9s
+    creates: /usr/local/bin/k9s
+  when: k8s_controller_install_k9s | bool
+
+- name: Install aws-cli on controller for backup restores
+  ansible.builtin.dnf:
+    name: awscli2
+    state: present
+  when: k8s_controller_awscli_enabled | bool
+
+- name: Ensure local kubeconfig directory exists
+  ansible.builtin.file:
+    path: "{{ k8s_local_kubeconfig_dir }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Fetch admin kubeconfig from bootstrap master
+  ansible.builtin.fetch:
+    src: "{{ k8s_admin_kubeconfig }}"
+    dest: "{{ k8s_local_kubeconfig_dir }}/config"
+    flat: true
+  delegate_to: "{{ k8s_bootstrap_host }}"
+  run_once: true
+
+- name: Ensure .kube directory exists for root
+  ansible.builtin.file:
+    path: /root/.kube
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy admin kubeconfig on controller
+  ansible.builtin.copy:
+    src: "{{ k8s_local_kubeconfig_dir }}/config"
+    dest: /root/.kube/config
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Rewrite kubeconfig server to HA endpoint
+  ansible.builtin.lineinfile:
+    path: /root/.kube/config
+    regexp: '^(\s+)server: https://.*:{{ k8s_api_port }}$'
+    line: '\1server: https://{{ k8s_api_endpoint }}:{{ k8s_api_port }}'
+    backrefs: true
+
+- name: Ensure .kube directory exists for ansible user
+  ansible.builtin.file:
+    path: "/home/{{ ansible_user }}/.kube"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+
+- name: Deploy admin kubeconfig for ansible user
+  ansible.builtin.copy:
+    src: "{{ k8s_local_kubeconfig_dir }}/config"
+    dest: "/home/{{ ansible_user }}/.kube/config"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0600"
+
+- name: Rewrite kubeconfig server to HA endpoint for ansible user
+  ansible.builtin.lineinfile:
+    path: "/home/{{ ansible_user }}/.kube/config"
+    regexp: '^(\s+)server: https://.*:{{ k8s_api_port }}$'
+    line: '\1server: https://{{ k8s_api_endpoint }}:{{ k8s_api_port }}'
+    backrefs: true

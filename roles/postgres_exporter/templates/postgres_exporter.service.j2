@@ -1,0 +1,15 @@
+[Unit]
+Description=Prometheus PostgreSQL Exporter
+After=network.target
+
+[Service]
+Type=simple
+User={{ postgres_exporter_user }}
+Group={{ postgres_exporter_group }}
+EnvironmentFile={{ postgres_exporter_config_dir }}/postgres_exporter.env
+ExecStart={{ postgres_exporter_install_dir }}/postgres_exporter --web.listen-address=:{{ postgres_exporter_port }}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

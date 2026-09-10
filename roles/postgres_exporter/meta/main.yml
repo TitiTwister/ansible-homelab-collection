@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: postgres_exporter
+  namespace: tititwister
+  author: TitiTwister
+  description: Prometheus postgres_exporter
+  license: Beerware
+  min_ansible_version: "2.18"
+  platforms:
+    - name: EL
+      versions: ["9"]
+  galaxy_tags: [monitoring, database, postgresql]
+
+dependencies: []

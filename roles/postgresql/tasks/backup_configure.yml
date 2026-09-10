@@ -1,0 +1,42 @@
+---
+# Configure pgBackRest: repository, stanza and leader discovery
+
+- name: Deploy pgBackRest configuration
+  ansible.builtin.template:
+    src: pgbackrest.conf.j2
+    dest: "{{ postgresql_backup_config_file }}"
+    owner: root
+    group: "{{ postgresql_backup_user }}"
+    mode: "0640"
+
+- name: Discover Patroni cluster state
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:{{ postgresql_patroni_rest_api_port }}/cluster"
+    return_content: true
+    status_code: 200
+  register: postgresql_backup_patroni_cluster
+  until: postgresql_backup_patroni_cluster.status == 200
+  retries: 12
+  delay: 5
+  run_once: true
+  delegate_to: "{{ ansible_play_hosts | first }}"
+
+- name: Set Patroni leader node for backup operations
+  ansible.builtin.set_fact:
+    postgresql_backup_leader_node: "{{ (postgresql_backup_patroni_cluster.content | from_json).members
+      | selectattr('role', 'equalto', 'leader')
+      | map(attribute='name')
+      | first }}"
+  run_once: true
+
+- name: Create pgBackRest stanza on the repository
+  ansible.builtin.command: >-
+    pgbackrest --stanza={{ postgresql_backup_stanza }} stanza-create
+  register: postgresql_backup_stanza_create
+  changed_when: "'already exists' not in postgresql_backup_stanza_create.stdout"
+  failed_when: postgresql_backup_stanza_create.rc != 0
+  become: true
+  become_user: "{{ postgresql_backup_user }}"
+  run_once: true
+  delegate_to: "{{ postgresql_backup_leader_node }}"
+  when: not ansible_check_mode

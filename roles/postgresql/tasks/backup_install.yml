@@ -1,0 +1,23 @@
+---
+# Install pgBackRest and supporting packages (PGDG repository already present)
+
+- name: Install pgBackRest backup packages
+  ansible.builtin.dnf:
+    name: "{{ postgresql_backup_packages }}"
+    state: present
+
+- name: Ensure pgBackRest configuration directory exists
+  ansible.builtin.file:
+    path: "{{ postgresql_backup_config_file | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ensure pgBackRest log directory exists
+  ansible.builtin.file:
+    path: "{{ postgresql_backup_log_dir }}"
+    state: directory
+    owner: "{{ postgresql_backup_user }}"
+    group: "{{ postgresql_backup_user }}"
+    mode: "0750"

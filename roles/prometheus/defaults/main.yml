@@ -1,0 +1,31 @@
+---
+# Default variables for prometheus role
+
+# Prometheus configuration
+prometheus_version: "2.45.0"
+prometheus_port: 9090
+prometheus_config_dir: /etc/prometheus
+prometheus_data_dir: /var/lib/prometheus
+prometheus_retention_time: "15d"
+
+# Alertmanager configuration
+prometheus_alertmanager_version: "0.27.0"
+prometheus_alertmanager_port: 9093
+prometheus_alertmanager_cluster_port: 9094
+prometheus_alertmanager_config_dir: /etc/alertmanager
+prometheus_alertmanager_data_dir: /var/lib/alertmanager
+
+# Telegram alerting
+# Set these in your inventory, group_vars, or pass at runtime with -e
+# telegram_bot_token: "YOUR_BOT_TOKEN_HERE"
+# telegram_chat_id: "YOUR_CHAT_ID_HERE"
+
+# Alert rules
+prometheus_rules_dir: "{{ prometheus_config_dir }}/rules"
+
+# Inventory group containing Prometheus/Alertmanager peers
+# Override this if your inventory uses a different group name.
+prometheus_group: prometheus
+
+# Firewall configuration
+prometheus_firewall_zone: public

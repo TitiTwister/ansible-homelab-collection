@@ -1,0 +1,26 @@
+client
+dev tun
+proto {{ openvpn_protocol }}
+remote {{ openvpn_server_public_ip }} {{ openvpn_port }}
+
+resolv-retry infinite
+nobind
+persist-key
+persist-tun
+
+{% if openvpn_cipher %}
+cipher {{ openvpn_cipher }}
+{% endif %}
+
+{% if openvpn_tls_version_min %}
+tls-version-min {{ openvpn_tls_version_min }}
+{% endif %}
+
+verb 3
+
+# Certificates and keys
+ca ca.crt
+cert {{ item }}.crt
+key {{ item }}.key
+
+tls-auth ta.key 1

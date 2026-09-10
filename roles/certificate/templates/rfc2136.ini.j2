@@ -1,0 +1,7 @@
+# Certbot RFC2136 credentials
+# Managed by Ansible
+
+dns_rfc2136_server = {{ certificate_dns_server }}
+dns_rfc2136_name = {{ bind_tsig_key_name }}
+dns_rfc2136_secret = {{ bind_tsig_key_secret }}
+dns_rfc2136_algorithm = {{ bind_tsig_key_algorithm | upper }}

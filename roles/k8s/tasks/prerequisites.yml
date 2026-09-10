@@ -1,0 +1,179 @@
+---
+# OS-level prerequisites for a Kubernetes node
+
+# kernel-modules-extra is required for br_netfilter on Rocky Linux 10+ minimal/cloud images.
+- name: Install kernel module packages
+  ansible.builtin.dnf:
+    name:
+      - kernel-modules
+      - kernel-modules-extra
+    state: present
+  register: k8s_kernel_modules_install
+
+- name: Reboot if kernel module packages were installed
+  ansible.builtin.reboot:
+    msg: "Rebooting to activate kernel-modules-extra"
+    connect_timeout: 5
+    reboot_timeout: 300
+    pre_reboot_delay: 0
+    post_reboot_delay: 30
+  # Immediate reboot required: later tasks in this file need the modules
+  # loaded, so a deferred handler would break them.
+  when: k8s_kernel_modules_install.changed  # noqa: no-handler
+
+- name: Check if br_netfilter module is available
+  ansible.builtin.command: modinfo br_netfilter
+  register: k8s_br_netfilter_info
+  changed_when: false
+  failed_when: false
+
+- name: Ensure required kernel modules are loaded
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - overlay
+    - br_netfilter
+  when: item != 'br_netfilter' or k8s_br_netfilter_info.rc == 0
+
+- name: Ensure kernel modules are loaded on boot
+  ansible.builtin.lineinfile:
+    path: /etc/modules-load.d/k8s.conf
+    line: "{{ item }}"
+    create: true
+    mode: "0644"
+  loop:
+    - overlay
+    - br_netfilter
+  when: item != 'br_netfilter' or k8s_br_netfilter_info.rc == 0
+
+- name: Ensure sysctl parameters for Kubernetes networking
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+    sysctl_file: /etc/sysctl.d/99-kubernetes.conf
+  loop:
+    - { name: net.bridge.bridge-nf-call-iptables, value: "1" }
+    - { name: net.bridge.bridge-nf-call-ip6tables, value: "1" }
+    - { name: net.ipv4.ip_forward, value: "1" }
+    - { name: net.ipv6.conf.all.forwarding, value: "1" }
+
+- name: Gather active swap devices
+  ansible.builtin.command: awk 'NR>1 {print $1}' /proc/swaps
+  register: k8s_swap_devices
+  changed_when: false
+
+- name: Disable active swap
+  ansible.builtin.command: swapoff -a
+  changed_when: true
+  when: k8s_swap_devices.stdout_lines | length > 0
+
+- name: Ensure swap entries are absent from /etc/fstab
+  ansible.posix.mount:
+    name: none
+    src: "{{ item }}"
+    fstype: swap
+    state: absent
+  loop: "{{ ansible_facts.mounts | selectattr('fstype', 'equalto', 'swap') | map(attribute='device') | list }}"
+  when: ansible_facts.mounts | selectattr('fstype', 'equalto', 'swap') | list | length > 0
+
+- name: Install containerd dependencies
+  ansible.builtin.dnf:
+    name:
+      - yum-utils
+      - device-mapper-persistent-data
+      - lvm2
+    state: present
+
+- name: Add Docker CE repository for containerd
+  ansible.builtin.yum_repository:
+    name: docker-ce
+    description: Docker CE Stable
+    baseurl: https://download.docker.com/linux/rhel/$releasever/$basearch/stable
+    gpgcheck: true
+    gpgkey: https://download.docker.com/linux/rhel/gpg
+    enabled: true
+  when: ansible_facts.distribution == "RedHat"
+
+- name: Add Docker CE repository for containerd (Rocky/Alma/CentOS)
+  ansible.builtin.yum_repository:
+    name: docker-ce
+    description: Docker CE Stable
+    baseurl: https://download.docker.com/linux/centos/$releasever/$basearch/stable
+    gpgcheck: true
+    gpgkey: https://download.docker.com/linux/centos/gpg
+    enabled: true
+  when: ansible_facts.distribution in ["Rocky", "AlmaLinux", "CentOS"]
+
+- name: Install containerd
+  ansible.builtin.dnf:
+    name: "{{ k8s_containerd_package }}"
+    state: present
+
+- name: Create containerd configuration directory
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    mode: "0755"
+
+- name: Deploy containerd configuration
+  ansible.builtin.template:
+    src: containerd-config.toml.j2
+    dest: /etc/containerd/config.toml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart containerd
+
+- name: Enable and start containerd
+  ansible.builtin.systemd:
+    name: containerd
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Add Kubernetes repository
+  ansible.builtin.yum_repository:
+    name: kubernetes
+    description: Kubernetes
+    baseurl: "https://pkgs.k8s.io/core:/stable:/v{{ k8s_kubernetes_version.split('.')[:2] | join('.') }}/rpm/"
+    gpgcheck: true
+    gpgkey: "https://pkgs.k8s.io/core:/stable:/v{{ k8s_kubernetes_version.split('.')[:2] | join('.') }}/rpm/repodata/repomd.xml.key"
+    enabled: true
+
+- name: Install Helm
+  ansible.builtin.unarchive:
+    src: "https://get.helm.sh/helm-v{{ k8s_helm_version }}-linux-amd64.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    include:
+      - linux-amd64/helm
+    extra_opts:
+      - "--strip-components=1"
+    creates: /usr/local/bin/helm
+
+- name: Set SELinux to permissive mode
+  ansible.posix.selinux:
+    policy: targeted
+    state: permissive
+  when:
+    - ansible_facts.selinux.status is defined
+    - ansible_facts.selinux.status == "enabled"
+
+- name: Ensure /etc/sysconfig/kubelet exists
+  ansible.builtin.copy:
+    content: ""
+    dest: /etc/sysconfig/kubelet
+    mode: "0644"
+    force: false
+
+- name: Configure kubelet extra args
+  ansible.builtin.lineinfile:
+    path: /etc/sysconfig/kubelet
+    regexp: '^KUBELET_EXTRA_ARGS='
+    line: 'KUBELET_EXTRA_ARGS={{ k8s_kubelet_extra_args }}'
+    create: true
+    mode: "0644"
+  when: k8s_kubelet_extra_args | length > 0

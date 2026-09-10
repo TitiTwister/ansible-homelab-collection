@@ -1,0 +1,104 @@
+---
+- name: Check that configured data disk exists
+  ansible.builtin.stat:
+    path: "{{ item.device }}"
+  loop: "{{ disks }}"
+  register: common_disk_stat
+  become: true
+
+- name: Fail if a root disk is targeted without explicit allow
+  ansible.builtin.fail:
+    msg: "Refusing to manage {{ item.device }} because it looks like a root disk. Set allow_root_disk: true to override."
+  loop: "{{ disks }}"
+  when:
+    - item.device in ['/dev/sda', '/dev/vda', '/dev/xvda', '/dev/nvme0n1']
+    - not (item.allow_root_disk | default(false) | bool)
+
+- name: Gather existing partitions on each data disk
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      parted -s {{ item.device }} print 2>/dev/null | awk '/^ [0-9]+/ {print $1}'
+  loop: "{{ disks }}"
+  changed_when: false
+  failed_when: common_disk_partitions.rc not in [0, 1]
+  register: common_disk_partitions
+  become: true
+
+- name: Create a single partition if requested and no partitions exist
+  community.general.parted:
+    device: "{{ item.item.device }}"
+    number: 1
+    state: present
+    part_start: "0%"
+    part_end: "100%"
+  loop: "{{ common_disk_partitions.results }}"
+  when:
+    - item.item.partition | default(true) | bool
+    - item.stdout | length == 0
+  become: true
+
+- name: Determine target device to format and mount
+  ansible.builtin.set_fact:
+    common_disk_target: "{{ common_disk_target | default([]) + [target_device] }}"
+  loop: "{{ disks }}"
+  vars:
+    partition_suffix: "{{ (item.device is search('/dev/nvme')) | ternary('p1', '1') }}"
+    target_device: "{{ (item.partition | default(true) | bool) | ternary(item.device ~ partition_suffix, item.device) }}"
+
+- name: Check existing filesystem on target
+  ansible.builtin.command:
+    cmd: "blkid -o value -s TYPE {{ item }}"
+  loop: "{{ common_disk_target }}"
+  changed_when: false
+  failed_when: false
+  register: common_disk_fs_check
+  become: true
+
+- name: Format target with XFS if not already XFS
+  community.general.filesystem:
+    fstype: xfs
+    dev: "{{ item.item }}"
+    force: false
+  loop: "{{ common_disk_fs_check.results }}"
+  when:
+    - item.rc != 0 or item.stdout != 'xfs'
+  become: true
+
+- name: Create mount points
+  ansible.builtin.file:
+    path: "{{ item.mount_point }}"
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+  loop: "{{ disks }}"
+  when:
+    - item.mount_point not in ansible_facts.mounts | map(attribute='mount') | list
+  become: true
+
+- name: Read UUID of target filesystems
+  ansible.builtin.command:
+    cmd: "blkid -o value -s UUID {{ item }}"
+  loop: "{{ common_disk_target }}"
+  changed_when: false
+  register: common_disk_uuid_raw
+  become: true
+
+- name: Normalize UUID values
+  ansible.builtin.set_fact:
+    common_disk_uuid: "{{ common_disk_uuid_raw.results | map(attribute='stdout') | map('trim') | list }}"
+
+- name: Mount and persist disks using UUID
+  ansible.posix.mount:
+    path: "{{ item.mount_point }}"
+    src: "UUID={{ common_disk_uuid[my_idx] }}"
+    fstype: xfs
+    opts: "{{ item.mount_options | default('defaults') }}"
+    state: "{{ item.state | default('mounted') }}"
+    dump: "{{ item.dump | default(0) }}"
+    passno: "{{ item.passno | default(0) }}"
+  loop: "{{ disks }}"
+  loop_control:
+    index_var: my_idx
+  become: true

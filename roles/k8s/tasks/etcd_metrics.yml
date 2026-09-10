@@ -1,0 +1,42 @@
+---
+# Expose the etcd metrics listener for Prometheus (job etcd-k8s).
+# Kubeadm binds the listener to loopback only; rebind it to all interfaces.
+# The playbook must run this file with serial: 1 so kubelet rolls the etcd
+# static pods one member at a time and the cluster never loses quorum.
+
+- name: Read etcd container start time before the manifest change
+  ansible.builtin.command:
+    cmd: >-
+      /usr/bin/kubectl --kubeconfig {{ k8s_admin_kubeconfig }}
+      -n kube-system get pod etcd-{{ inventory_hostname }}
+      -o jsonpath={.status.containerStatuses[0].state.running.startedAt}
+  register: k8s_etcd_started_before
+  changed_when: false
+
+- name: Configure etcd metrics listener in static pod manifest
+  ansible.builtin.lineinfile:
+    path: "{{ k8s_etcd_manifest_path }}"
+    regexp: '^\s*- --listen-metrics-urls='
+    line: '    - --listen-metrics-urls={{ k8s_etcd_listen_metrics_urls }}'
+    insertafter: '^\s*- etcd\s*$'
+    state: present
+  register: k8s_etcd_manifest_configured
+
+- name: Wait for etcd container restart and readiness
+  # The etcd container must actually restart (new start time) with the new
+  # listener and report Ready. Probing readiness alone is not enough: the
+  # old container still serves /readyz for a few seconds after kubelet has
+  # picked up the manifest change.
+  ansible.builtin.command:
+    cmd: >-
+      /usr/bin/kubectl --kubeconfig {{ k8s_admin_kubeconfig }}
+      -n kube-system get pod etcd-{{ inventory_hostname }}
+      -o jsonpath={.status.containerStatuses[0].state.running.startedAt},{.status.containerStatuses[0].ready}
+  register: k8s_etcd_pod_state
+  changed_when: false
+  until:
+    - k8s_etcd_pod_state.stdout != k8s_etcd_started_before.stdout
+    - k8s_etcd_pod_state.stdout is search(',True$')
+  retries: 36
+  delay: 5
+  when: k8s_etcd_manifest_configured.changed  # noqa: no-handler

@@ -1,0 +1,5 @@
+---
+# Main tasks for node_exporter role
+
+- name: Install Node Exporter
+  ansible.builtin.include_tasks: install.yml

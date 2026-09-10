@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: grafana
+  namespace: tititwister
+  author: TitiTwister
+  description: Grafana with provisioned Prometheus datasources and dashboards
+  license: Beerware
+  min_ansible_version: "2.18"
+  platforms:
+    - name: EL
+      versions: ["9"]
+  galaxy_tags: [monitoring, grafana, dashboards]
+
+dependencies: []

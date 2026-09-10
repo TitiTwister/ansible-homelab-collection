@@ -1,0 +1,40 @@
+---
+# Promtail configuration, rendered by the promtail role.
+# Tails the local journald and pushes every entry to Loki with job,
+# host and unit labels (plus level=error for priorities 0-3).
+server:
+  http_listen_address: 127.0.0.1
+  http_listen_port: {{ promtail_http_port }}
+  grpc_listen_port: 0
+
+positions:
+  filename: {{ promtail_data_dir }}/positions.yaml
+
+clients:
+  - url: {{ promtail_loki_push_url }}
+
+scrape_configs:
+  - job_name: journald
+    journal:
+      json: false
+      max_age: {{ promtail_journal_max_age }}
+    relabel_configs:
+      # Ephemeral per-session systemd scopes (every login, cron job or
+      # ansible task creates one): unbounded label cardinality, drop them.
+      - source_labels: [__journal__systemd_unit]
+        regex: '(session-[0-9]+|user-[0-9]+)\..*'
+        action: drop
+      - source_labels: [__journal__hostname]
+        target_label: host
+      - source_labels: [__journal__systemd_unit]
+        target_label: unit
+      # Promtail's journald target does not set a job label from
+      # job_name; set it explicitly so stream selectors work.
+      - target_label: job
+        replacement: journald
+      # Only error-level priorities (0-3) get a level label: bounded
+      # cardinality, at most one extra value per stream.
+      - source_labels: [__journal_priority]
+        regex: '[0-3]'
+        target_label: level
+        replacement: 'error'

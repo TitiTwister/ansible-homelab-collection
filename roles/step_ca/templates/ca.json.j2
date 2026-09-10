@@ -1,0 +1,29 @@
+{
+  "root": "{{ step_ca_install_path }}/certs/root_ca.crt",
+  "crt": "{{ step_ca_install_path }}/certs/intermediate_ca.crt",
+  "key": "{{ step_ca_install_path }}/secrets/intermediate_ca_key",
+  "address": ":{{ step_ca_server_port }}",
+  "dnsNames": ["{{ step_ca_server_ca_url | default(inventory_hostname) }}"],
+  "db": {
+    "type": "badgerv2",
+    "dataSource": "{{ step_ca_install_path }}/db"
+  },
+  "logger": {
+    "format": "text"
+  },
+  "authority": {
+    "claims": {
+      "defaultTLSCertDuration": "{{ step_ca_server_cert_duration }}",
+      "maxTLSCertDuration": "{{ step_ca_server_cert_max_duration }}"
+    },
+    "provisioners": [
+      {
+        "type": "ACME",
+        "name": "{{ step_ca_server_acme_provisioner_name | default('acme') }}"
+      }
+    ]
+  },
+  "tls": {
+    "minVersion": 1.2
+  }
+}

@@ -1,0 +1,18 @@
+---
+# Main tasks for step_ca role
+# Detects mode: offline PKI host (PKI setup) or online CA server
+
+- name: Include install tasks (binaries)
+  ansible.builtin.include_tasks: install.yml
+
+- name: Include offline PKI host setup tasks
+  ansible.builtin.include_tasks: setup_pki.yml
+  when: step_ca_pki_mode | default(false)
+
+- name: Include OpenVPN certificate generation tasks
+  ansible.builtin.include_tasks: generate_ovpn_certs.yml
+  when: step_ca_pki_mode | default(false)
+
+- name: Include online CA server setup tasks
+  ansible.builtin.include_tasks: setup_online_ca.yml
+  when: step_ca_server_mode | default(false)

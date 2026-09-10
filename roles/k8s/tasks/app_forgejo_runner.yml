@@ -1,0 +1,70 @@
+---
+# Deploy the Forgejo Actions runner: offline registration against the
+# Forgejo instance, then a Deployment with a Docker-in-Docker sidecar.
+
+- name: Validate Forgejo runner configuration
+  ansible.builtin.assert:
+    that:
+      - k8s_forgejo_runner_secret | length > 0
+      - "'CHANGE_ME' not in k8s_forgejo_runner_secret"
+      - k8s_forgejo_runner_secret is match('^[0-9a-f]{40}$')
+    fail_msg: >-
+      k8s_forgejo_runner_secret must be a 40-character hexadecimal string
+      (see the vault_forgejo.yml vault file).
+
+- name: Register Forgejo Actions runner
+  ansible.builtin.command: >
+    kubectl exec deployment/forgejo -n {{ k8s_forgejo_namespace }} --
+    forgejo forgejo-cli actions register
+    --name {{ k8s_forgejo_runner_name }}
+    --secret {{ k8s_forgejo_runner_secret }}
+    {{ '--scope ' ~ k8s_forgejo_runner_scope if k8s_forgejo_runner_scope | length > 0 else '' }}
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_forgejo_runner_register
+  # forgejo-cli actions register is idempotent: running it again with the
+  # same secret converges to the same runner record.
+  changed_when: false
+  failed_when: k8s_forgejo_runner_register.rc != 0
+
+- name: Extract runner UUID from registration output
+  ansible.builtin.set_fact:
+    k8s_forgejo_runner_uuid: >-
+      {{ (k8s_forgejo_runner_register.stdout_lines | default([]))
+         | select('match', '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$')
+         | list | first | default('') }}
+  when: not ansible_check_mode
+
+- name: Ensure runner UUID was returned by forgejo-cli
+  ansible.builtin.assert:
+    that: k8s_forgejo_runner_uuid | length > 0
+    fail_msg: >-
+      Could not parse the runner UUID from forgejo-cli output:
+      {{ k8s_forgejo_runner_register.stdout | default('') }}
+  when: not ansible_check_mode
+
+- name: Render Forgejo runner manifest
+  ansible.builtin.template:
+    src: forgejo-runner.yaml.j2
+    dest: /tmp/forgejo-runner.yaml
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Apply Forgejo runner manifest
+  ansible.builtin.command: kubectl apply -f /tmp/forgejo-runner.yaml
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_forgejo_runner_apply
+  changed_when: "'created' in k8s_forgejo_runner_apply.stdout or 'configured' in k8s_forgejo_runner_apply.stdout"
+  failed_when: k8s_forgejo_runner_apply.rc != 0
+
+- name: Wait for Forgejo runner deployment to be available
+  ansible.builtin.command: >
+    kubectl wait --namespace {{ k8s_forgejo_namespace }}
+    --for=condition=available
+    deployment/forgejo-runner
+    --timeout=600s
+  environment:
+    KUBECONFIG: /root/.kube/config
+  changed_when: false

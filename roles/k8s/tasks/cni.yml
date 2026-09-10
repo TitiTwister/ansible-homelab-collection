@@ -1,0 +1,20 @@
+---
+# Deploy CNI plugin from the controller VM.
+
+- name: Check if a CNI is already deployed
+  ansible.builtin.command: kubectl get ds -n kube-system --no-headers
+  register: k8s_cni_check
+  changed_when: false
+  failed_when: false
+  environment:
+    KUBECONFIG: /root/.kube/config
+
+- name: Deploy Cilium CNI
+  ansible.builtin.include_tasks: cni_cilium.yml
+  when: k8s_cni == "cilium"
+
+- name: Deploy Calico CNI
+  ansible.builtin.include_tasks: cni_calico.yml
+  when:
+    - k8s_cni == "calico"
+    - "'calico' not in k8s_cni_check.stdout"

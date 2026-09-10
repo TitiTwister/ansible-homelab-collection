@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Custom firewalld service: {{ item.service }}
+  Managed by Ansible
+-->
+<service>
+  <short>{{ item.short | default(item.service | capitalize) }}</short>
+  <description>{{ item.description | default('Custom ' ~ item.service ~ ' service') }}</description>
+{% for p in item.port | split(',') %}
+{% set parts = p.strip().split('/') %}
+  <port protocol="{{ parts[1] | default('tcp') }}" port="{{ parts[0] }}"/>
+{% endfor %}
+</service>

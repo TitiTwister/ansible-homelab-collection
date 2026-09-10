@@ -1,0 +1,74 @@
+---
+# Install Prometheus on Rocky Linux
+
+- name: Add Prometheus user
+  ansible.builtin.user:
+    name: prometheus
+    system: true
+    shell: /bin/false
+    home: /etc/prometheus
+    create_home: false
+
+- name: Create Prometheus configuration directory
+  ansible.builtin.file:
+    path: "{{ prometheus_config_dir }}"
+    state: directory
+    owner: prometheus
+    group: prometheus
+    mode: '0755'
+
+- name: Ensure Prometheus data directory exists and is owned by prometheus
+  ansible.builtin.file:
+    path: "{{ prometheus_data_dir }}"
+    state: directory
+    owner: prometheus
+    group: prometheus
+    mode: '0755'
+
+- name: Download Prometheus
+  ansible.builtin.get_url:
+    url: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+    dest: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+    mode: '0644'
+
+- name: Extract Prometheus
+  ansible.builtin.unarchive:
+    src: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+    dest: /tmp/
+    remote_src: true
+    creates: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64"
+
+- name: Install Prometheus binaries
+  ansible.builtin.copy:
+    src: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    mode: '0755'
+    remote_src: true
+  loop:
+    - prometheus
+    - promtool
+
+- name: Copy console files
+  ansible.builtin.copy:
+    src: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64/{{ item }}/"
+    dest: "{{ prometheus_config_dir }}/{{ item }}/"
+    owner: prometheus
+    group: prometheus
+    mode: '0755'
+    remote_src: true
+  loop:
+    - consoles
+    - console_libraries
+
+- name: Create Prometheus systemd service
+  ansible.builtin.template:
+    src: prometheus.service.j2
+    dest: /etc/systemd/system/prometheus.service
+    mode: '0644'
+  notify: restart prometheus
+
+- name: Enable Prometheus service
+  ansible.builtin.systemd:
+    name: prometheus
+    enabled: true
+    daemon_reload: true

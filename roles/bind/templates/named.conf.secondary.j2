@@ -1,0 +1,62 @@
+// named.conf - Secondary DNS server
+// Managed by Ansible
+
+acl "trusted" {
+{% for net in bind_allowed_nets %}
+    {{ net }};
+{% endfor %}
+};
+
+options {
+    listen-on port 53 { any; };
+    listen-on-v6 port 53 { none; };
+    directory       "{{ bind_zones_dir }}";
+    dump-file       "/var/named/data/cache_dump.db";
+    statistics-file "/var/named/data/named_stats.txt";
+    memstatistics-file "/var/named/data/named_mem_stats.txt";
+
+    allow-query     { trusted; };
+    allow-query-cache { trusted; };
+    allow-recursion { trusted; };
+    recursion yes;
+
+    forwarders {
+        {{ bind_primary_ip }};
+    };
+    forward first;
+
+    dnssec-validation auto;
+
+    managed-keys-directory "/var/named/dynamic";
+    pid-file "/run/named/named.pid";
+    session-keyfile "/run/named/session.key";
+};
+
+logging {
+    channel default_debug {
+        file "data/named.run";
+        severity dynamic;
+    };
+};
+
+zone "." IN {
+    type hint;
+    file "named.ca";
+};
+
+// Forward zone - secondary (zone transfer from primary)
+zone "{{ bind_zone_name }}" IN {
+    type secondary;
+    file "db.{{ bind_zone_name }}";
+    primaries { {{ bind_primary_ip }}; };
+};
+
+{% for rev in bind_reverse_zones %}
+// Reverse zone - {{ rev.network }} (secondary)
+zone "{{ rev.zone }}" IN {
+    type secondary;
+    file "db.{{ rev.zone }}";
+    primaries { {{ bind_primary_ip }}; };
+};
+
+{% endfor %}

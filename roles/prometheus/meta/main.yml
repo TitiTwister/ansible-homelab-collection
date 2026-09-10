@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: prometheus
+  namespace: tititwister
+  author: TitiTwister
+  description: Prometheus and Alertmanager monitoring pair with Telegram alerting
+  license: Beerware
+  min_ansible_version: "2.18"
+  platforms:
+    - name: EL
+      versions: ["9"]
+  galaxy_tags: [monitoring, prometheus, alerting]
+
+dependencies: []

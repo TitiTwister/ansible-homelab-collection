@@ -1,0 +1,10 @@
+---
+# kube-state-metrics Helm values, rendered by the k8s role.
+# Single replica: every manager instance exposes the full cluster state,
+# more replicas only duplicate the series. Exposed as a NodePort and
+# scraped by the site Prometheus through the HAProxy ksm_metrics TCP
+# backend (single logical target).
+replicas: 1
+service:
+  type: NodePort
+  nodePort: {{ k8s_kubestatemetrics_nodeport }}

@@ -1,0 +1,114 @@
+---
+# Forgejo backup: encrypted dump to S3, run as an in-cluster CronJob.
+# A kaniko Job builds the backup toolchain image (bash, kubectl, openssl,
+# python3, aws-cli on Alpine) from the Containerfile ConfigMap and pushes
+# it to the Forgejo container registry. The CronJob then execs
+# `forgejo dump` inside the live pod over kubectl (RBAC-restricted
+# ServiceAccount) and streams a single zip out: git repositories, LFS
+# objects, attachments, avatars, packages, app.ini/custom and a native
+# database dump. The zip is staged in a memory-backed emptyDir (so it
+# never lands on a node's root disk), encrypted client-side and uploaded
+# to S3. The PostgreSQL cluster is separately covered by pgBackRest.
+#
+# The k8s nodes must trust the CA that signed the registry certificate
+# for the CronJob to pull the image; the certificate role, applied to
+# the node plays in the playbook, installs that trust.
+
+- name: Validate Forgejo backup configuration
+  ansible.builtin.assert:
+    that:
+      - k8s_forgejo_backup_s3_bucket != "CHANGE_ME"
+      - k8s_forgejo_backup_s3_endpoint != "CHANGE_ME"
+      - k8s_forgejo_backup_s3_region != "CHANGE_ME"
+      - k8s_forgejo_backup_s3_key | length > 0
+      - k8s_forgejo_backup_s3_key_secret | length > 0
+      - k8s_forgejo_backup_cipher_pass | length > 0
+      - k8s_forgejo_backup_registry_host | length > 0
+      - k8s_forgejo_backup_registry_user | length > 0
+      - k8s_forgejo_backup_registry_password | length > 0
+      - k8s_forgejo_backup_schedule | length > 0
+      - k8s_forgejo_backup_retention | int >= 1
+    fail_msg: >-
+      Forgejo backup is enabled but its configuration is incomplete.
+      Check the k8s_forgejo_backup_* inventory variables and the
+      vault_backup.yml / vault_forgejo.yml vault files (S3 credentials,
+      cipher passphrase and registry password).
+
+# Job templates are immutable: a completed forgejo-backup-image-build Job
+# is not re-run by kubectl apply, and applying a changed template fails.
+# Recreate the Job whenever it is absent, failed, or no longer matches the
+# desired kaniko image / destination; otherwise keep the completed build.
+- name: Read deployed Forgejo backup toolchain build job
+  ansible.builtin.command: >
+    kubectl get job forgejo-backup-image-build
+    --namespace {{ k8s_forgejo_namespace }} -o json
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_forgejo_backup_build_job
+  changed_when: false
+  failed_when: k8s_forgejo_backup_build_job.rc not in [0, 1]
+  when: not ansible_check_mode
+
+- name: Parse deployed Forgejo backup toolchain build job
+  ansible.builtin.set_fact:
+    k8s_forgejo_backup_build_deployed: >-
+      {{ k8s_forgejo_backup_build_job.stdout | from_json
+         if k8s_forgejo_backup_build_job.rc | default(1) == 0
+         else {} }}
+
+- name: Determine whether the toolchain build job must be recreated
+  ansible.builtin.set_fact:
+    k8s_forgejo_backup_rebuild_job: >-
+      {{ k8s_forgejo_backup_build_deployed | length == 0
+         or k8s_forgejo_backup_build_deployed.spec.template.spec.containers[0].image
+            != k8s_forgejo_backup_kaniko_image
+         or k8s_forgejo_backup_image
+            not in (k8s_forgejo_backup_build_deployed.spec.template.spec.containers[0].args | join(' '))
+         or (k8s_forgejo_backup_build_deployed.status.succeeded | default(0)) | int < 1 }}
+
+- name: Remove stale Forgejo backup toolchain build job
+  ansible.builtin.command: >
+    kubectl delete job forgejo-backup-image-build
+    --namespace {{ k8s_forgejo_namespace }} --ignore-not-found
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_forgejo_backup_build_delete
+  changed_when: "'deleted' in k8s_forgejo_backup_build_delete.stdout"
+  when: k8s_forgejo_backup_rebuild_job | bool
+
+- name: Render Forgejo backup manifest
+  ansible.builtin.template:
+    src: forgejo-backup.yaml.j2
+    dest: /tmp/forgejo-backup.yaml
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Apply Forgejo backup manifest
+  ansible.builtin.command: kubectl apply -f /tmp/forgejo-backup.yaml
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_forgejo_backup_apply
+  changed_when: "'created' in k8s_forgejo_backup_apply.stdout or 'configured' in k8s_forgejo_backup_apply.stdout"
+  until: k8s_forgejo_backup_apply.rc == 0
+  retries: 5
+  delay: 10
+
+- name: Wait for the toolchain image build job to finish
+  ansible.builtin.command: >
+    kubectl get job forgejo-backup-image-build
+    --namespace {{ k8s_forgejo_namespace }}
+    -o jsonpath='{.status.conditions[*].type}'
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_forgejo_backup_build_watch
+  changed_when: false
+  until: >-
+    'Complete' in k8s_forgejo_backup_build_watch.stdout
+    or 'Failed' in k8s_forgejo_backup_build_watch.stdout
+  failed_when: >-
+    k8s_forgejo_backup_build_watch.rc != 0
+    or 'Failed' in k8s_forgejo_backup_build_watch.stdout
+  retries: 60
+  delay: 15
+  when: k8s_forgejo_backup_rebuild_job | bool

@@ -1,0 +1,62 @@
+---
+# Install PostgreSQL, Patroni and etcd from PGDG / distribution repositories
+
+- name: Install PGDG repository RPM
+  ansible.builtin.dnf:
+    name: "{{ postgresql_pgdg_repo_url }}"
+    state: present
+    disable_gpg_check: true
+  become: true
+
+- name: Install PostgreSQL server and contrib packages
+  ansible.builtin.dnf:
+    name: "{{ postgresql_packages }}"
+    state: present
+  become: true
+
+- name: Install Patroni packages
+  ansible.builtin.dnf:
+    name:
+      - "{{ postgresql_patroni_package }}"
+      - "{{ postgresql_patroni_package }}-etcd"
+    state: present
+  become: true
+
+- name: Install etcd from upstream binary
+  ansible.builtin.include_tasks: install_etcd.yml
+
+- name: Ensure Patroni configuration directory exists
+  ansible.builtin.file:
+    path: "{{ postgresql_patroni_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Ensure etcd configuration directory exists
+  ansible.builtin.file:
+    path: "{{ postgresql_etcd_config_file | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Ensure etcd data directory exists
+  ansible.builtin.file:
+    path: "{{ postgresql_etcd_data_dir }}"
+    state: directory
+    owner: etcd
+    group: etcd
+    mode: "0700"
+  become: true
+
+- name: Ensure PostgreSQL data directory exists
+  ansible.builtin.file:
+    path: "{{ postgresql_data_dir | dirname }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0755"
+  become: true

@@ -1,0 +1,16 @@
+# pgBackRest repository check for stanza {{ postgresql_backup_stanza }}
+# Managed by Ansible - do not edit manually
+
+[Unit]
+Description=pgBackRest repository check for stanza {{ postgresql_backup_stanza }}
+Documentation=https://pgbackrest.org/command.html#command-check
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User={{ postgresql_backup_user }}
+# Run only on the current Patroni leader; other nodes skip cleanly.
+ExecCondition=/usr/bin/curl --silent --fail http://127.0.0.1:{{ postgresql_patroni_rest_api_port }}/primary
+# Wrapper runs pgbackrest and pushes job metrics to the pushgateways.
+ExecStart=/usr/local/bin/pgbackrest-push check

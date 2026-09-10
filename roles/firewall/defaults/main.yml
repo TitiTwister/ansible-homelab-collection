@@ -1,0 +1,12 @@
+---
+# Firewall Role - defaults (generic placeholders)
+# Define firewall_rules per host/group in inventory group_vars
+
+# Default: empty list - hosts define their own rules
+firewall_rules: []
+
+# Default zone for rules that don't specify one
+firewall_default_zone: "public"
+
+# Enable IP forwarding (required for VPN routing / masquerade)
+firewall_ip_forward: false

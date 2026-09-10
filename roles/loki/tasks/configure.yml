@@ -1,0 +1,23 @@
+---
+# Configure Loki
+
+- name: Deploy Loki configuration
+  ansible.builtin.template:
+    src: loki-config.yml.j2
+    dest: "{{ loki_config_file }}"
+    owner: "{{ loki_user }}"
+    group: "{{ loki_group }}"
+    mode: '0644'
+  notify: Restart loki
+
+- name: Flush handlers so the service exists before verification
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify Loki configuration
+  ansible.builtin.command: /usr/local/bin/loki -verify-config -config.file={{ loki_config_file }}
+  changed_when: false
+
+- name: Start Loki service
+  ansible.builtin.systemd:
+    name: loki
+    state: started

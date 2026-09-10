@@ -1,0 +1,16 @@
+---
+# Main tasks for promtail role
+
+- name: Validate promtail configuration
+  ansible.builtin.assert:
+    that:
+      - promtail_loki_push_url | length > 0
+    fail_msg: >-
+      promtail is enabled but promtail_loki_push_url is empty. Set the
+      Loki push API endpoint in group_vars/all/vars_promtail.yml.
+
+- name: Install promtail
+  ansible.builtin.import_tasks: install.yml
+
+- name: Configure promtail
+  ansible.builtin.import_tasks: configure.yml

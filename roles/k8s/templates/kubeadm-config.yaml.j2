@@ -1,0 +1,46 @@
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: "{{ ansible_host }}"
+  bindPort: 6443
+nodeRegistration:
+  name: "{{ inventory_hostname }}"
+  criSocket: unix:///run/containerd/containerd.sock
+  kubeletExtraArgs:
+    - name: node-ip
+      value: "{{ ansible_host }}"
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+clusterName: "{{ k8s_cluster_name }}"
+kubernetesVersion: "v{{ k8s_kubernetes_version }}"
+controlPlaneEndpoint: "{{ k8s_control_plane_endpoint }}"
+networking:
+  podSubnet: "{{ k8s_pod_subnet }}"
+  serviceSubnet: "{{ k8s_service_subnet }}"
+dns:
+  type: CoreDNS
+  imageRepository: registry.k8s.io/coredns
+  imageTag: v1.11.3
+controllerManager:
+  extraArgs:
+    - name: node-monitor-grace-period
+      value: 40s
+scheduler:
+  extraArgs:
+    - name: bind-address
+      value: "0.0.0.0"
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+clusterDNS:
+  - "{{ k8s_cluster_dns }}"
+systemReserved:
+  cpu: 100m
+  memory: 128Mi
+kubeReserved:
+  cpu: 100m
+  memory: 128Mi
+evictionHard:
+  memory.available: "100Mi"
+  nodefs.available: "10%"

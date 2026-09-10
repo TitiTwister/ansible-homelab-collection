@@ -1,0 +1,66 @@
+---
+# Main tasks for k8s role
+
+- name: Ensure k8s_bootstrap_host is defined
+  ansible.builtin.assert:
+    that:
+      - k8s_bootstrap_host is defined
+      - k8s_bootstrap_host | length > 0
+    fail_msg: "k8s_bootstrap_host must be defined in inventory (e.g., groups['your_masters'] | first)."
+
+- name: Ensure k8s_addons_host is defined
+  ansible.builtin.assert:
+    that:
+      - k8s_addons_host is defined
+      - k8s_addons_host | length > 0
+    fail_msg: "k8s_addons_host must be defined in inventory (e.g., groups['your_controllers'] | first)."
+  when: k8s_node_type == "addons"
+
+- name: Detect whether cluster has already been bootstrapped
+  ansible.builtin.include_tasks: check_bootstrap.yml
+  when: k8s_node_type in ["master", "worker"]
+
+- name: Include prerequisites
+  ansible.builtin.include_tasks: prerequisites.yml
+  when: k8s_node_type in ["master", "worker"]
+
+- name: Include Kubernetes package installation
+  ansible.builtin.include_tasks: install.yml
+  when: k8s_node_type in ["master", "worker"]
+
+- name: Initialize first control-plane node
+  ansible.builtin.include_tasks: control_plane.yml
+  when:
+    - k8s_node_type == "master"
+    - inventory_hostname == k8s_bootstrap_host
+    - not (k8s_cluster_bootstrapped | bool)
+
+- name: Join additional control-plane nodes
+  ansible.builtin.include_tasks: join_masters.yml
+  when:
+    - k8s_node_type == "master"
+    - inventory_hostname != k8s_bootstrap_host
+
+- name: Join worker nodes
+  ansible.builtin.include_tasks: join_workers.yml
+  when: k8s_node_type == "worker"
+
+- name: Include CSI node prerequisites
+  ansible.builtin.include_tasks: csi_prerequisites.yml
+  when:
+    - k8s_node_type in ["master", "worker"]
+    - k8s_csi != "none"
+
+- name: Configure controller tooling
+  ansible.builtin.include_tasks: controller.yml
+  when: k8s_node_type == "controller"
+
+- name: Configure etcd metrics listener
+  ansible.builtin.include_tasks: etcd_metrics.yml
+  when: k8s_node_type == "etcd-metrics"
+
+- name: Deploy cluster addons
+  ansible.builtin.include_tasks: addons.yml
+  when:
+    - k8s_node_type == "addons"
+    - inventory_hostname == k8s_addons_host

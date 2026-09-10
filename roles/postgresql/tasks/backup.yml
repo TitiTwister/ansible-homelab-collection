@@ -1,0 +1,17 @@
+---
+# pgBackRest backup phases, included when postgresql_backup_enabled
+
+- name: Validate pgBackRest backup configuration
+  ansible.builtin.import_tasks: backup_validate.yml
+
+- name: Install pgBackRest backup packages
+  ansible.builtin.import_tasks: backup_install.yml
+
+- name: Configure pgBackRest repository and stanza
+  ansible.builtin.import_tasks: backup_configure.yml
+
+- name: Deploy pgBackRest backup schedules
+  ansible.builtin.import_tasks: backup_schedule.yml
+
+- name: Verify pgBackRest repository and first backup
+  ansible.builtin.import_tasks: backup_verify.yml

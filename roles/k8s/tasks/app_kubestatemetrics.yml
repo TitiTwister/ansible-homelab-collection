@@ -1,0 +1,90 @@
+---
+# Deploy kube-state-metrics using Helm from the controller VM.
+# Exposed as a NodePort on every node; the site Prometheus scrapers reach it
+# through the HAProxy ksm_metrics TCP backend (single logical target, no
+# duplicated series from a multi-replica service).
+
+- name: Ensure Prometheus community Helm repository is added
+  ansible.builtin.command: /usr/local/bin/helm repo add prometheus-community https://prometheus-community.github.io/helm-charts/
+  register: k8s_kubestatemetrics_repo_add
+  # helm >= 3.17 succeeds when the repository already exists, making this
+  # cache maintenance like the repo update below. On older helm the
+  # already-exists error is tolerated instead of failing.
+  changed_when: false
+  failed_when:
+    - k8s_kubestatemetrics_repo_add.rc != 0
+    - "'already exists' not in k8s_kubestatemetrics_repo_add.stderr"
+
+- name: Update Helm repositories
+  ansible.builtin.command: /usr/local/bin/helm repo update
+  changed_when: false
+
+- name: Render kube-state-metrics Helm values
+  ansible.builtin.template:
+    src: kubestatemetrics-values.yaml.j2
+    dest: /tmp/kubestatemetrics-values.yaml
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Read deployed kube-state-metrics release metadata
+  ansible.builtin.command: >
+    /usr/local/bin/helm get metadata kube-state-metrics
+    --namespace {{ k8s_kubestatemetrics_namespace }} -o json
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_kubestatemetrics_release
+  changed_when: false
+  failed_when: k8s_kubestatemetrics_release.rc not in [0, 1]
+  when: not ansible_check_mode
+
+- name: Read deployed kube-state-metrics values
+  ansible.builtin.command: >
+    /usr/local/bin/helm get values kube-state-metrics
+    --namespace {{ k8s_kubestatemetrics_namespace }} -o json
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_kubestatemetrics_values_deployed
+  changed_when: false
+  failed_when: k8s_kubestatemetrics_values_deployed.rc not in [0, 1]
+  when: not ansible_check_mode
+
+- name: Read rendered kube-state-metrics values
+  ansible.builtin.slurp:
+    src: /tmp/kubestatemetrics-values.yaml
+  register: k8s_kubestatemetrics_values_rendered
+  when: not ansible_check_mode
+
+- name: Install or upgrade kube-state-metrics
+  ansible.builtin.command: >
+    /usr/local/bin/helm upgrade --install kube-state-metrics
+    prometheus-community/kube-state-metrics
+    --version {{ k8s_kubestatemetrics_chart_version }}
+    --namespace {{ k8s_kubestatemetrics_namespace }}
+    --create-namespace
+    -f /tmp/kubestatemetrics-values.yaml
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_kubestatemetrics_helm
+  # helm has no server-side diffing: it always prints "has been upgraded"
+  # and bumps the release revision. Only run the upgrade when the release,
+  # chart version or values actually differ.
+  when: >
+    k8s_kubestatemetrics_release.rc | default(1) != 0
+    or (k8s_kubestatemetrics_release.stdout | from_json).status != "deployed"
+    or (k8s_kubestatemetrics_release.stdout | from_json).version != k8s_kubestatemetrics_chart_version
+    or (k8s_kubestatemetrics_values_deployed.stdout | from_json) != (k8s_kubestatemetrics_values_rendered.content | b64decode | from_yaml)
+  changed_when: "'STATUS: deployed' in k8s_kubestatemetrics_helm.stdout or 'has been upgraded' in k8s_kubestatemetrics_helm.stdout"
+  until: k8s_kubestatemetrics_helm.rc == 0
+  retries: 3
+  delay: 30
+
+- name: Wait for kube-state-metrics deployment to be available
+  ansible.builtin.command: >
+    kubectl --namespace {{ k8s_kubestatemetrics_namespace }}
+    wait --for=condition=available
+    deployment/kube-state-metrics
+    --timeout=300s
+  environment:
+    KUBECONFIG: /root/.kube/config
+  changed_when: false

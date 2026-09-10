@@ -1,0 +1,93 @@
+---
+# Configure DNS via NetworkManager
+
+- name: Get active NetworkManager connection details
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      nmcli -t -f NAME,UUID,DEVICE con show --active | awk 'NR==1'
+  register: common_nm_active_connection
+  changed_when: false
+  become: true
+
+- name: Set NetworkManager connection facts
+  ansible.builtin.set_fact:
+    common_nm_connection_name: "{{ common_nm_active_connection.stdout.split(':')[0] }}"
+    common_nm_connection_uuid: "{{ common_nm_active_connection.stdout.split(':')[1] }}"
+    common_nm_connection_device: "{{ common_nm_active_connection.stdout.split(':')[2] }}"
+  when: common_nm_active_connection.stdout | length > 0
+
+- name: Configure DNS via NetworkManager
+  community.general.nmcli:
+    conn_name: "{{ common_nm_connection_name }}"
+    dns4: "{{ dns_nameservers }}"
+    dns4_search: "{{ dns_search_domain }}"
+    dns4_ignore_auto: true
+    may_fail4: false
+    state: present
+  become: true
+  when: common_nm_active_connection.stdout | length > 0
+  register: common_nm_dns_config
+
+- name: Reapply NetworkManager connection to activate DNS changes
+  ansible.builtin.command:
+    cmd: nmcli device reapply {{ common_nm_connection_device }}
+  changed_when: true
+  become: true
+  when:
+    - common_nm_active_connection.stdout | length > 0
+    - common_nm_dns_config is changed
+
+- name: Get currently active DNS servers
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      nmcli -t device show {{ common_nm_connection_device }} | awk -F: '/^IP4.DNS/ {print $2}'
+  changed_when: false
+  become: true
+  when: common_nm_active_connection.stdout | length > 0
+  register: common_nm_active_dns
+
+- name: Check if active DNS matches configured DNS
+  ansible.builtin.set_fact:
+    common_nm_dns_mismatch: "{{ common_nm_active_dns.stdout_lines | map('trim') | list | sort != dns_nameservers | map('string') | list | sort }}"
+  when:
+    - common_nm_active_connection.stdout | length > 0
+    - common_nm_active_dns.stdout_lines is defined
+
+- name: Reapply NetworkManager connection when DNS is not active
+  ansible.builtin.command:
+    cmd: nmcli device reapply {{ common_nm_connection_device }}
+  changed_when: true
+  become: true
+  when:
+    - common_nm_active_connection.stdout | length > 0
+    - common_nm_dns_mismatch is defined
+    - common_nm_dns_mismatch | bool
+
+- name: Deploy NetworkManager dispatcher script to persist DNS after reboot
+  ansible.builtin.copy:
+    dest: /etc/NetworkManager/dispatcher.d/99-custom-dns
+    content: |
+      #!/bin/bash
+      # Deployed by Ansible: reapply custom DNS after network events/cloud-init
+
+      interface="$1"
+      status="$2"
+
+      if [ "$status" = "up" ] || [ "$status" = "connectivity-change" ]; then
+          primary_conn=$(nmcli -t -f NAME,DEVICE con show --active | grep "^{{ common_nm_connection_name }}:" | head -1 | cut -d: -f1)
+          if [ -n "$primary_conn" ]; then
+              nmcli con mod "$primary_conn" ipv4.dns "{{ dns_nameservers | join(' ') }}"
+              nmcli con mod "$primary_conn" ipv4.dns-search "{{ dns_search_domain }}"
+              nmcli con mod "$primary_conn" ipv4.ignore-auto-dns yes
+              nmcli device reapply "{{ common_nm_connection_device }}"
+          fi
+      fi
+    owner: root
+    group: root
+    mode: "0755"
+  when:
+    - common_nm_active_connection.stdout | length > 0
+    - dns_nameservers is defined
+    - dns_search_domain is defined

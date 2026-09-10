@@ -1,0 +1,154 @@
+---
+# Forgejo Actions runner, rendered by the k8s role from inventory variables.
+# The runner registers offline against the Forgejo instance using the shared
+# secret (see the register task in app_forgejo_runner.yml) and executes jobs
+# in containers created by a privileged Docker-in-Docker sidecar.
+{% set runner_config %}
+log:
+  level: info
+runner:
+  capacity: {{ k8s_forgejo_runner_capacity }}
+  insecure: false
+  labels:
+{% for label in k8s_forgejo_runner_labels %}
+    - {{ label | to_json }}
+{% endfor %}
+  # Let job containers verify the instance TLS certificate (step-ca) for
+  # clones of the instance repositories, while actions fetched from public
+  # hosts keep using the job image's own CA bundle (git >= 2.31 env config).
+  envs:
+    GIT_CONFIG_COUNT: "1"
+    GIT_CONFIG_KEY_1: http.https://{{ k8s_forgejo_hostname }}/.sslCAInfo
+    GIT_CONFIG_VALUE_1: /forgejo-ca/ca.crt
+container:
+  network: ""
+  privileged: false
+  # Do not mount the runner's Docker socket into job containers.
+  docker_host: "-"
+  valid_volumes:
+    - /forgejo-ca/ca.crt
+  # The source path is resolved by the Docker-in-Docker daemon, which
+  # also mounts the forgejo-ca-bundle Secret.
+  options: "--volume /forgejo-ca/ca.crt:/forgejo-ca/ca.crt:ro"
+cache:
+  # The cache server is not reachable from job containers behind
+  # Docker-in-Docker without a stable address; keep it disabled.
+  enabled: false
+server:
+  connections:
+    forgejo:
+      url: https://{{ k8s_forgejo_hostname }}/
+      uuid: {{ k8s_forgejo_runner_uuid }}
+      token: {{ k8s_forgejo_runner_secret }}
+{% endset %}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: forgejo-runner-config
+  namespace: {{ k8s_forgejo_namespace }}
+type: Opaque
+# data (not stringData): kubectl apply sends a phantom patch for stringData
+# manifests on every run and would spuriously report changes.
+data:
+  config.yml: {{ runner_config | trim | b64encode | to_json }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: forgejo-runner-data
+  namespace: {{ k8s_forgejo_namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ k8s_forgejo_runner_data_size }}
+{% if k8s_forgejo_storage_class | length > 0 %}
+  storageClassName: {{ k8s_forgejo_storage_class }}
+{% endif %}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: forgejo-runner-docker
+  namespace: {{ k8s_forgejo_namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ k8s_forgejo_runner_docker_size }}
+{% if k8s_forgejo_storage_class | length > 0 %}
+  storageClassName: {{ k8s_forgejo_storage_class }}
+{% endif %}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forgejo-runner
+  namespace: {{ k8s_forgejo_namespace }}
+  labels:
+    app.kubernetes.io/name: forgejo-runner
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: forgejo-runner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: forgejo-runner
+    spec:
+      # The forgejo-runner image runs as uid 1000.
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: runner
+          image: {{ k8s_forgejo_runner_image }}
+          command: ["forgejo-runner", "daemon", "--config", "/config/config.yml"]
+          env:
+            - name: DOCKER_HOST
+              value: tcp://127.0.0.1:2375
+            # Trust the instance certificate (step-ca) and the image's
+            # public roots (Go scans both directories).
+            - name: SSL_CERT_DIR
+              value: /forgejo-ca:/etc/ssl/certs
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: data
+              mountPath: /data
+            - name: ca-bundle
+              mountPath: /forgejo-ca
+              readOnly: true
+        - name: dind
+          image: {{ k8s_forgejo_runner_dind_image }}
+          # Run dockerd directly, bypassing the image entrypoint: it enables
+          # TLS by default (DOCKER_TLS_CERTDIR=/certs is baked in) and would
+          # append --tlsverify after our --tls=false. Plain HTTP is fine on
+          # the pod loopback.
+          command: ["dockerd", "-H", "tcp://0.0.0.0:2375", "--tls=false"]
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: docker-data
+              mountPath: /var/lib/docker
+            - name: ca-bundle
+              mountPath: /forgejo-ca
+              readOnly: true
+      volumes:
+        - name: config
+          secret:
+            secretName: forgejo-runner-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: forgejo-runner-data
+        - name: docker-data
+          persistentVolumeClaim:
+            claimName: forgejo-runner-docker
+        - name: ca-bundle
+          secret:
+            secretName: forgejo-ca-bundle

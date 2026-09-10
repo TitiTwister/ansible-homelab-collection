@@ -1,0 +1,6 @@
+---
+# metrics-server Helm values, rendered by the k8s role.
+# kubeadm kubelets serve self-signed certificates; without this flag
+# metrics-server rejects their /metrics endpoints.
+args:
+  - --kubelet-insecure-tls

@@ -1,0 +1,13 @@
+---
+galaxy_info:
+  role_name: promtail
+  namespace: tititwister
+  author: TitiTwister
+  description: Promtail journald shipper for Loki
+  license: Beerware
+  min_ansible_version: "2.18"
+  platforms:
+    - name: EL
+      versions: ["9"]
+  galaxy_tags: [monitoring, logging, loki, promtail]
+dependencies: []

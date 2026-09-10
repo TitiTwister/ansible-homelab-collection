@@ -1,0 +1,65 @@
+#!/bin/bash
+# pgBackRest metrics wrapper for the systemd timers: runs a backup or a
+# repository check, pushes job metrics to the Prometheus pushgateways and
+# propagates the pgBackRest exit code. Pushes are best-effort and never
+# fail the wrapped command.
+# Managed by Ansible - do not edit manually
+# Usage: pgbackrest-push {full|diff|check}
+
+set -o pipefail
+
+ACTION="${1:-}"
+STANZA="{{ postgresql_backup_stanza }}"
+INSTANCE="{{ inventory_hostname }}"
+PUSHGATEWAYS="{{ postgresql_backup_pushgateway_urls | join(' ') }}"
+
+case "${ACTION}" in
+  full|diff)
+    JOB="pgbackrest_backup"
+    COMMAND=(--stanza="${STANZA}" --type="${ACTION}" backup)
+    ;;
+  check)
+    JOB="pgbackrest_check"
+    COMMAND=(--stanza="${STANZA}" check)
+    ;;
+  *)
+    echo "usage: pgbackrest-push {full|diff|check}" >&2
+    exit 64
+    ;;
+esac
+
+# Push a metrics payload to every pushgateway. URL group labels become
+# metric labels; a push replaces all metrics previously stored under the
+# same group.
+push() {
+  local group="$1" payload="$2" gw
+  for gw in ${PUSHGATEWAYS}; do
+    printf '%s' "${payload}" | curl -m 10 -s --connect-timeout 5 \
+      --data-binary @- "${gw}/metrics/job/${group}/type/${ACTION}/instance/${INSTANCE}" || true
+  done
+}
+
+start=$(date +%s)
+/usr/bin/pgbackrest "${COMMAND[@]}"
+rc=$?
+duration=$(( $(date +%s) - start ))
+
+ok=0
+if [ "${rc}" -eq 0 ]; then ok=1; fi
+
+# Per-run group: replaced on every run, success or failure.
+push "${JOB}_run" "# TYPE ${JOB}_last_run_success gauge
+${JOB}_last_run_success ${ok}
+# TYPE ${JOB}_last_run_duration_seconds gauge
+${JOB}_last_run_duration_seconds ${duration}
+"
+
+# Success group: replaced only on success, so the last-success timestamp
+# survives failing runs (staleness alerting).
+if [ "${ok}" -eq 1 ]; then
+  push "${JOB}" "# TYPE ${JOB}_last_success_timestamp_seconds gauge
+${JOB}_last_success_timestamp_seconds $(date +%s)
+"
+fi
+
+exit "${rc}"

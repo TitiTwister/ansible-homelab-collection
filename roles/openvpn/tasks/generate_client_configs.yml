@@ -1,0 +1,55 @@
+---
+# Generate OpenVPN client configuration files on the controller
+# 1. Fetch CA chain + client certs from OVPN server (extracted from tarball)
+# 2. Fetch ta.key from OVPN server
+# 3. Template .ovpn files on controller
+
+- name: Ensure client config directories exist on controller
+  ansible.builtin.file:
+    path: "{{ openvpn_client_config_dir }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: false
+  loop: "{{ openvpn_clients }}"
+
+# Fetch CA chain from OVPN server
+- name: Fetch CA chain to controller
+  ansible.builtin.fetch:
+    src: "{{ openvpn_cert_dir }}/ca.crt"
+    dest: "{{ openvpn_client_config_dir }}/ca.crt"
+    flat: true
+
+# Fetch client certs from OVPN server
+- name: Fetch client certificates to controller
+  ansible.builtin.fetch:
+    src: "{{ openvpn_cert_dir }}/{{ item }}.crt"
+    dest: "{{ openvpn_client_config_dir }}/{{ item }}/{{ item }}.crt"
+    flat: true
+  loop: "{{ openvpn_clients }}"
+
+# Fetch client keys from OVPN server
+- name: Fetch client keys to controller
+  ansible.builtin.fetch:
+    src: "{{ openvpn_cert_dir }}/{{ item }}.key"
+    dest: "{{ openvpn_client_config_dir }}/{{ item }}/{{ item }}.key"
+    flat: true
+  loop: "{{ openvpn_clients }}"
+
+# Fetch TLS auth key from OVPN server
+- name: Fetch TLS auth key from server
+  ansible.builtin.fetch:
+    src: "/etc/openvpn/ta.key"
+    dest: "{{ openvpn_client_config_dir }}/ta.key"
+    flat: true
+
+# Generate .ovpn config files on controller
+- name: Generate client .ovpn configuration file
+  ansible.builtin.template:
+    src: client.ovpn.j2
+    dest: "{{ openvpn_client_config_dir }}/{{ item }}/{{ item }}.ovpn"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  no_log: true
+  loop: "{{ openvpn_clients }}"

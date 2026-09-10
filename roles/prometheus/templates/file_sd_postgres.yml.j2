@@ -1,0 +1,7 @@
+---
+# Prometheus file_sd targets for postgres_exporter
+# Entries are hostname@ip:9187; relabel config splits hostname and ip.
+- targets:
+{% for entry in prometheus_targets_postgres.postgres | map(attribute='targets') | flatten | default([]) %}
+    - "{{ entry }}:{{ postgres_exporter_port | default(9187) }}"
+{% endfor %}

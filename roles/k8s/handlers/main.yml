@@ -1,0 +1,27 @@
+---
+# Handlers for k8s role
+
+- name: Restart containerd
+  ansible.builtin.systemd:
+    name: containerd
+    state: restarted
+    daemon_reload: true
+  become: true
+
+- name: Restart kubelet
+  ansible.builtin.systemd:
+    name: kubelet
+    state: restarted
+    daemon_reload: true
+  become: true
+
+# Init containers and pod env consume the Forgejo secrets at pod start;
+# a rollout restart is required for secret changes to take effect.
+- name: Restart Forgejo deployment
+  ansible.builtin.command: >
+    kubectl rollout restart deployment/forgejo
+    --namespace {{ k8s_forgejo_namespace }}
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_forgejo_rollout_restart
+  changed_when: "'restarted' in k8s_forgejo_rollout_restart.stdout"

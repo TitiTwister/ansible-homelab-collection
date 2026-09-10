@@ -1,0 +1,30 @@
+---
+# Deploy the Kubernetes monitoring credentials (cluster CA + ServiceAccount
+# token) used by the kubernetes_* scrape jobs. The source directory is
+# populated by the k8s role (monitoring_rbac.yml) on the control node.
+
+- name: Ensure Kubernetes credentials directory exists
+  ansible.builtin.file:
+    path: "{{ prometheus_config_dir }}/k8s"
+    state: directory
+    owner: prometheus
+    group: prometheus
+    mode: '0750'
+
+- name: Deploy the cluster CA certificate
+  ansible.builtin.copy:
+    src: "{{ prometheus_k8s_credentials_src }}/ca.crt"
+    dest: "{{ prometheus_config_dir }}/k8s/ca.crt"
+    owner: prometheus
+    group: prometheus
+    mode: '0644'
+  notify: restart prometheus
+
+- name: Deploy the monitoring ServiceAccount token
+  ansible.builtin.copy:
+    src: "{{ prometheus_k8s_credentials_src }}/token"
+    dest: "{{ prometheus_config_dir }}/k8s/token"
+    owner: prometheus
+    group: prometheus
+    mode: '0640'
+  notify: restart prometheus

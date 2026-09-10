@@ -1,0 +1,31 @@
+---
+namespace: tititwister
+name: homelab
+version: 1.0.0
+readme: README.md
+authors:
+  - TitiTwister <https://github.com/TitiTwister>
+description: >-
+  Ansible roles for running a homelab: PKI (step-ca), DNS (BIND),
+  HAProxy, a full Prometheus/Grafana/Loki monitoring stack, a PostgreSQL
+  HA cluster (Patroni/etcd) and Kubernetes (kubeadm).
+license:
+  - Beerware
+tags:
+  - homelab
+  - infrastructure
+  - monitoring
+  - networking
+  - database
+  - kubernetes
+dependencies: {}
+repository: https://github.com/TitiTwister/ansible-homelab-collection
+documentation: https://github.com/TitiTwister/ansible-homelab-collection#readme
+homepage: https://github.com/TitiTwister/ansible-homelab-collection
+issues: https://github.com/TitiTwister/ansible-homelab-collection/issues
+build_ignore:
+  - .github
+  - .gitignore
+  - .ansible
+  - .DS_Store
+  - __pycache__

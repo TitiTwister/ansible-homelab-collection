@@ -1,0 +1,33 @@
+---
+# Install BIND packages
+
+- name: Install BIND packages
+  ansible.builtin.dnf:
+    name:
+      - bind
+      - bind-utils
+    state: present
+
+# Create required directories before starting named
+- name: Create required BIND directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: named
+    group: named
+    mode: "0770"
+  loop:
+    - "{{ bind_zones_dir }}/data"
+    - "{{ bind_zones_dir }}/dynamic"
+
+- name: Set SELinux context on BIND directories
+  ansible.builtin.command: "restorecon -Rv {{ bind_zones_dir }}"
+  changed_when: false
+  failed_when: false
+
+- name: Enable and start named
+  ansible.builtin.systemd:
+    name: named
+    enabled: true
+    state: started
+    daemon_reload: true

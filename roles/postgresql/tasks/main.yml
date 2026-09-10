@@ -1,0 +1,28 @@
+---
+# Main tasks for postgresql role
+
+- name: Validate mandatory PostgreSQL credentials are defined
+  ansible.builtin.fail:
+    msg: "You must define postgresql_superuser_password and postgresql_replication_password for the cluster."
+  when:
+    - postgresql_superuser_password is not defined
+    - postgresql_replication_password is not defined
+
+- name: Include PostgreSQL/Patroni/etcd installation
+  ansible.builtin.include_tasks: install.yml
+
+- name: Include PostgreSQL/Patroni/etcd configuration
+  ansible.builtin.include_tasks: configure.yml
+
+- name: Flush pending handlers so PostgreSQL applies new configuration
+  ansible.builtin.meta: flush_handlers
+
+- name: Include pgBackRest backup setup
+  ansible.builtin.include_tasks:
+    file: backup.yml
+    apply:
+      tags:
+        - backup
+  when: postgresql_backup_enabled | default(false) | bool
+  tags:
+    - backup

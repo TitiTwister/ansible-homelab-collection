@@ -1,0 +1,14 @@
+---
+# Handlers for openvpn role
+
+- name: Restart OpenVPN
+  ansible.builtin.systemd:
+    name: openvpn-server@server
+    state: restarted
+  become: true
+
+- name: Reload OpenVPN
+  ansible.builtin.systemd:
+    name: openvpn-server@server
+    state: reloaded
+  become: true

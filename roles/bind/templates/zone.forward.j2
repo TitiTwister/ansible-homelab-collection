@@ -1,0 +1,19 @@
+; Forward zone for {{ bind_zone_name }}
+; Managed by Ansible
+$TTL {{ bind_zone_ttl }}
+@   IN  SOA {{ bind_primary_ns }}.{{ bind_zone_name }}. {{ bind_soa_email | replace('@', '.') }}. (
+        {{ bind_computed_serial }}  ; serial
+        {{ bind_zone_refresh }}   ; refresh
+        {{ bind_zone_retry }}     ; retry
+        {{ bind_zone_expire }}    ; expire
+        {{ bind_zone_minimum }}   ; minimum TTL
+)
+
+; Name servers
+@       IN  NS      {{ bind_primary_ns }}.{{ bind_zone_name }}.
+@       IN  NS      {{ bind_secondary_ns }}.{{ bind_zone_name }}.
+
+; A Records
+{% for record in bind_records %}
+{{ "%-30s" | format(record.name) }} IN  A       {{ record.ip }}
+{% endfor %}

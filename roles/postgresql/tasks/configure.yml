@@ -1,0 +1,216 @@
+---
+# Configure etcd and Patroni for the PostgreSQL HA cluster
+
+- name: Ensure SSSD log directory exists
+  ansible.builtin.file:
+    path: /var/log/sssd
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Deploy etcd configuration
+  ansible.builtin.template:
+    src: etcd.conf.yml.j2
+    dest: "{{ postgresql_etcd_config_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart etcd
+  become: true
+
+- name: Deploy etcd systemd service
+  ansible.builtin.template:
+    src: etcd.service.j2
+    dest: /etc/systemd/system/etcd.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Restart etcd
+  become: true
+
+- name: Enable and start etcd
+  ansible.builtin.systemd:
+    name: etcd
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: true
+
+- name: Wait for etcd to be healthy on this node
+  ansible.builtin.command: >
+    {{ postgresql_etcd_install_dir }}/etcdctl endpoint health
+    --endpoints=http://{{ ansible_host }}:{{ postgresql_etcd_client_port }}
+  changed_when: false
+  retries: 12
+  delay: 5
+  until: postgresql_etcd_health.rc == 0
+  register: postgresql_etcd_health
+  become: true
+
+- name: Ensure PostgreSQL TLS directory exists
+  ansible.builtin.file:
+    path: "{{ postgresql_tls_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0700"
+  become: true
+  when: postgresql_tls_enabled | bool
+
+- name: Copy TLS certificate files for PostgreSQL
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: postgres
+    group: postgres
+    mode: "{{ item.mode }}"
+    remote_src: true
+  loop:
+    - src: "{{ postgresql_tls_cert_src }}"
+      dest: "{{ postgresql_tls_cert_file }}"
+      mode: "0644"
+    - src: "{{ postgresql_tls_key_src }}"
+      dest: "{{ postgresql_tls_key_file }}"
+      mode: "0600"
+    - src: "{{ postgresql_tls_ca_src }}"
+      dest: "{{ postgresql_tls_ca_file }}"
+      mode: "0644"
+  notify: Restart patroni
+  become: true
+  when: postgresql_tls_enabled | bool
+
+- name: Deploy Patroni configuration
+  ansible.builtin.template:
+    src: patroni.yml.j2
+    dest: "{{ postgresql_patroni_config_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart patroni
+  become: true
+
+- name: Ensure Patroni systemd drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/patroni.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Override Patroni service to use custom config file
+  ansible.builtin.copy:
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=/usr/bin/patroni {{ postgresql_patroni_config_file }}
+    dest: /etc/systemd/system/patroni.service.d/override.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Restart patroni
+  become: true
+
+- name: Enable and start Patroni
+  ansible.builtin.systemd:
+    name: patroni
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: true
+
+- name: Wait for Patroni REST API to respond
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:{{ postgresql_patroni_rest_api_port }}/health"
+    status_code: 200
+  register: postgresql_patroni_health_check
+  until: postgresql_patroni_health_check.status == 200
+  retries: 18
+  delay: 5
+  become: true
+
+- name: Discover Patroni leader
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:{{ postgresql_patroni_rest_api_port }}/cluster"
+    return_content: true
+    status_code: 200
+  register: postgresql_patroni_cluster_state
+  run_once: true
+  delegate_to: "{{ postgresql_bootstrap_host }}"
+  become: true
+
+- name: Set Patroni leader host for DDL
+  ansible.builtin.set_fact:
+    postgresql_leader_host: "{{ (postgresql_patroni_cluster_state.content | from_json).members
+      | selectattr('role', 'equalto', 'leader') | map(attribute='host') | first }}"
+  run_once: true
+  delegate_to: "{{ postgresql_bootstrap_host }}"
+  become: true
+
+- name: Create application users/roles
+  community.postgresql.postgresql_user:
+    name: "{{ item.name }}"
+    password: "{{ item.password | default(omit) }}"
+    priv: "{{ item.priv | default(omit) }}"
+    state: present
+    login_host: "{{ postgresql_leader_host }}"
+    login_port: "{{ postgresql_port }}"
+    login_user: "{{ postgresql_superuser_username | default('postgres') }}"
+    login_password: "{{ postgresql_superuser_password | default('postgres') }}"
+  loop: "{{ postgresql_users | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  run_once: true
+  delegate_to: "{{ postgresql_bootstrap_host }}"
+  become: true
+
+- name: Create application databases
+  community.postgresql.postgresql_db:
+    name: "{{ item.name }}"
+    owner: "{{ item.owner | default(omit) }}"
+    state: present
+    login_host: "{{ postgresql_leader_host }}"
+    login_port: "{{ postgresql_port }}"
+    login_user: "{{ postgresql_superuser_username | default('postgres') }}"
+    login_password: "{{ postgresql_superuser_password | default('postgres') }}"
+  loop: "{{ postgresql_databases | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  run_once: true
+  delegate_to: "{{ postgresql_bootstrap_host }}"
+  become: true
+
+- name: Ensure monitoring user for postgres_exporter exists
+  community.postgresql.postgresql_user:
+    name: "{{ postgresql_monitoring_user.name }}"
+    password: "{{ postgresql_monitoring_user.password }}"
+    role_attr_flags: "{{ postgresql_monitoring_user.role_attr_flags | default('LOGIN') }}"
+    state: present
+    login_host: "{{ postgresql_leader_host }}"
+    login_port: "{{ postgresql_port }}"
+    login_user: "{{ postgresql_superuser_username | default('postgres') }}"
+    login_password: "{{ postgresql_superuser_password | default('postgres') }}"
+  run_once: true
+  delegate_to: "{{ postgresql_bootstrap_host }}"
+  become: true
+  when: postgresql_monitoring_user | length > 0
+
+- name: Grant pg_monitor role to monitoring user
+  community.postgresql.postgresql_membership:
+    group: pg_monitor
+    target_roles: "{{ postgresql_monitoring_user.name }}"
+    state: present
+    login_host: "{{ postgresql_leader_host }}"
+    login_port: "{{ postgresql_port }}"
+    login_user: "{{ postgresql_superuser_username | default('postgres') }}"
+    login_password: "{{ postgresql_superuser_password | default('postgres') }}"
+  run_once: true
+  delegate_to: "{{ postgresql_bootstrap_host }}"
+  become: true
+  when:
+    - postgresql_monitoring_user | length > 0
+    - postgresql_version | int >= 10

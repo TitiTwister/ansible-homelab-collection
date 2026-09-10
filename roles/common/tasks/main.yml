@@ -1,0 +1,15 @@
+---
+- name: Install common required packages
+  ansible.builtin.dnf:
+    name:
+      - NetworkManager
+    state: present
+  become: true
+
+- name: Configure DNS via NetworkManager
+  ansible.builtin.include_tasks: dns.yml
+  when: dns_nameservers is defined
+
+- name: Format and mount data disks
+  ansible.builtin.include_tasks: disks.yml
+  when: disks is defined

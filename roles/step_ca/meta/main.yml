@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: step_ca
+  namespace: tititwister
+  author: TitiTwister
+  description: step-ca root and intermediate CA, and online CA server
+  license: Beerware
+  min_ansible_version: "2.18"
+  platforms:
+    - name: EL
+      versions: ["9"]
+  galaxy_tags: [pki, ca, security]
+
+dependencies: []

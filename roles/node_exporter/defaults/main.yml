@@ -1,0 +1,13 @@
+---
+# Default variables for node_exporter role
+
+# Node Exporter version
+node_exporter_version: "1.8.2"
+
+# Node Exporter configuration
+node_exporter_port: 9100
+node_exporter_user: node_exporter
+node_exporter_group: node_exporter
+
+# Firewall configuration
+node_exporter_firewall_zone: public

@@ -1,0 +1,88 @@
+---
+# Deploy Longhorn using Helm from the controller VM.
+
+- name: Ensure Longhorn Helm repository is added
+  ansible.builtin.command: /usr/local/bin/helm repo add longhorn https://charts.longhorn.io/
+  register: k8s_longhorn_repo_add
+  # helm >= 3.17 succeeds when the repository already exists, making this
+  # cache maintenance like the repo update below. On older helm the
+  # already-exists error is tolerated instead of failing.
+  changed_when: false
+  failed_when:
+    - k8s_longhorn_repo_add.rc != 0
+    - "'already exists' not in k8s_longhorn_repo_add.stderr"
+
+- name: Update Helm repositories
+  ansible.builtin.command: /usr/local/bin/helm repo update
+  changed_when: false
+
+- name: Render Longhorn Helm values
+  ansible.builtin.template:
+    src: longhorn-values.yaml.j2
+    dest: /tmp/longhorn-values.yaml
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Read deployed Longhorn release metadata
+  ansible.builtin.command: >
+    /usr/local/bin/helm get metadata longhorn --namespace longhorn-system -o json
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_longhorn_release
+  changed_when: false
+  failed_when: k8s_longhorn_release.rc not in [0, 1]
+  when: not ansible_check_mode
+
+- name: Read deployed Longhorn values
+  ansible.builtin.command: >
+    /usr/local/bin/helm get values longhorn --namespace longhorn-system -o json
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_longhorn_values_deployed
+  changed_when: false
+  failed_when: k8s_longhorn_values_deployed.rc not in [0, 1]
+  when: not ansible_check_mode
+
+- name: Read rendered Longhorn values
+  ansible.builtin.slurp:
+    src: /tmp/longhorn-values.yaml
+  register: k8s_longhorn_values_rendered
+  when: not ansible_check_mode
+
+- name: Install or upgrade Longhorn
+  ansible.builtin.command: >
+    /usr/local/bin/helm upgrade --install longhorn longhorn/longhorn
+    --version {{ k8s_longhorn_version }}
+    --namespace longhorn-system
+    --create-namespace
+    -f /tmp/longhorn-values.yaml
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_longhorn_helm
+  # helm has no server-side diffing: it always prints "has been upgraded"
+  # and bumps the release revision. Only run the upgrade when the release,
+  # chart version or values actually differ.
+  when: >
+    k8s_longhorn_release.rc | default(1) != 0
+    or (k8s_longhorn_release.stdout | from_json).status != "deployed"
+    or (k8s_longhorn_release.stdout | from_json).version != k8s_longhorn_version
+    or (k8s_longhorn_values_deployed.stdout | from_json) != (k8s_longhorn_values_rendered.content | b64decode | from_yaml)
+  changed_when: "'STATUS: deployed' in k8s_longhorn_helm.stdout or 'has been upgraded' in k8s_longhorn_helm.stdout"
+  # The CRD creation burst can overwhelm a small control plane (etcd leader
+  # change -> API timeouts). CRDs from a failed attempt persist in etcd, so
+  # each retry is progressively lighter.
+  until: k8s_longhorn_helm.rc == 0
+  retries: 3
+  delay: 60
+
+- name: Wait for Longhorn frontend service
+  ansible.builtin.command: >
+    kubectl get svc longhorn-frontend -n longhorn-system
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_longhorn_svc_check
+  until: k8s_longhorn_svc_check.rc == 0
+  retries: 12
+  delay: 5
+  changed_when: false

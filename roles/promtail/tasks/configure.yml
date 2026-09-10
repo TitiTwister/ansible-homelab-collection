@@ -1,0 +1,23 @@
+---
+# Configure promtail
+
+- name: Deploy promtail configuration
+  ansible.builtin.template:
+    src: promtail-config.yml.j2
+    dest: "{{ promtail_config_file }}"
+    owner: "{{ promtail_user }}"
+    group: "{{ promtail_group }}"
+    mode: '0644'
+  notify: Restart promtail
+
+- name: Flush handlers so the service exists before verification
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify promtail configuration
+  ansible.builtin.command: /usr/local/bin/promtail -check-syntax -config.file={{ promtail_config_file }}
+  changed_when: false
+
+- name: Start promtail service
+  ansible.builtin.systemd:
+    name: promtail
+    state: started

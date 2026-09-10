@@ -1,0 +1,21 @@
+# etcd configuration for PostgreSQL/Patroni cluster
+# Managed by Ansible
+
+name: {{ inventory_hostname }}
+data-dir: {{ postgresql_etcd_data_dir }}
+
+listen-client-urls: http://{{ ansible_host }}:{{ postgresql_etcd_client_port }},http://127.0.0.1:{{ postgresql_etcd_client_port }}
+advertise-client-urls: http://{{ ansible_host }}:{{ postgresql_etcd_client_port }}
+
+listen-peer-urls: http://{{ ansible_host }}:{{ postgresql_etcd_peer_port }}
+initial-advertise-peer-urls: http://{{ ansible_host }}:{{ postgresql_etcd_peer_port }}
+
+# Metrics and health endpoints, scraped by Prometheus (job etcd-pg).
+listen-metrics-urls: http://{{ ansible_host }}:{{ postgresql_etcd_metrics_port }},http://127.0.0.1:{{ postgresql_etcd_metrics_port }}
+
+initial-cluster: {% for host in groups[postgresql_group] | default([]) %}{{ host }}=http://{{ hostvars[host].ansible_host | default(host) }}:{{ postgresql_etcd_peer_port }}{% if not loop.last %},{% endif %}{% endfor %}
+
+initial-cluster-token: {{ postgresql_cluster_name }}
+initial-cluster-state: new
+
+enable-v2: false

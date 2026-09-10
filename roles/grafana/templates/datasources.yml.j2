@@ -1,0 +1,19 @@
+apiVersion: 1
+
+datasources:
+{% for host in groups[grafana_prometheus_group] | default([]) %}
+  - name: "Prometheus - {{ host }}"
+    type: prometheus
+    access: proxy
+    url: "http://{{ hostvars[host].ansible_host | default(host) }}:{{ grafana_prometheus_port }}"
+    isDefault: {{ loop.first | bool | lower }}
+    editable: false
+{% endfor %}
+{% if grafana_loki_url | length > 0 %}
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: "{{ grafana_loki_url }}"
+    editable: false
+{% endif %}

@@ -1,0 +1,149 @@
+---
+# Bootstrap the first control-plane node
+
+- name: Check if cluster is already initialized
+  ansible.builtin.stat:
+    path: "{{ k8s_admin_kubeconfig }}"
+  register: k8s_admin_conf_stat
+
+- name: Deploy kubeadm init configuration
+  ansible.builtin.template:
+    src: kubeadm-config.yaml.j2
+    dest: /root/kubeadm-config.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  when: not k8s_admin_conf_stat.stat.exists
+
+- name: Initialize Kubernetes control plane
+  ansible.builtin.command: >
+    kubeadm init
+    --config=/root/kubeadm-config.yaml
+    --upload-certs
+    --node-name={{ inventory_hostname }}
+  args:
+    creates: "{{ k8s_admin_kubeconfig }}"
+  register: k8s_kubeadm_init
+  when: not k8s_admin_conf_stat.stat.exists
+
+- name: Ensure .kube directory exists for root
+  ansible.builtin.file:
+    path: /root/.kube
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Copy admin kubeconfig for root
+  ansible.builtin.copy:
+    src: "{{ k8s_admin_kubeconfig }}"
+    dest: /root/.kube/config
+    owner: root
+    group: root
+    mode: "0600"
+    remote_src: true
+
+- name: Create local kubeconfig directory on control node
+  ansible.builtin.file:
+    path: "{{ k8s_local_kubeconfig_dir }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Fetch admin kubeconfig to control node
+  ansible.builtin.fetch:
+    src: "{{ k8s_admin_kubeconfig }}"
+    dest: "{{ k8s_local_kubeconfig_dir }}/config"
+    flat: true
+  run_once: true
+
+- name: Ensure local bootstrap kubeconfig exists and points to node IP
+  block:
+    - name: Create local bootstrap kubeconfig from admin kubeconfig
+      ansible.builtin.copy:
+        src: "{{ k8s_admin_kubeconfig }}"
+        dest: /root/kubeadm-local-admin.conf
+        owner: root
+        group: root
+        mode: "0600"
+        remote_src: true
+        force: false
+
+    - name: Update local bootstrap kubeconfig server to node IP
+      ansible.builtin.lineinfile:
+        path: /root/kubeadm-local-admin.conf
+        regexp: '^    server: https://.*:6443$'
+        line: '    server: https://{{ ansible_host }}:6443'
+        backrefs: true
+
+- name: Ensure a bootstrap token exists
+  ansible.builtin.command: kubeadm token create --ttl 24h --description "ansible-k8s-bootstrap"
+  register: k8s_token_create
+  changed_when: true
+  run_once: true
+  environment:
+    KUBECONFIG: /root/kubeadm-local-admin.conf
+  when: not k8s_admin_conf_stat.stat.exists
+
+- name: Set bootstrap token fact on all hosts
+  ansible.builtin.set_fact:
+    k8s_bootstrap_token: "{{ k8s_token_create.stdout }}"
+  when: k8s_token_create is defined and k8s_token_create.stdout is defined
+
+- name: Retrieve existing bootstrap tokens when cluster already initialized
+  ansible.builtin.command: kubeadm token list
+  register: k8s_existing_tokens
+  changed_when: false
+  run_once: true
+  environment:
+    KUBECONFIG: /root/kubeadm-local-admin.conf
+  when: k8s_admin_conf_stat.stat.exists
+
+- name: Set bootstrap token fact from existing tokens
+  ansible.builtin.set_fact:
+    k8s_bootstrap_token: "{{ k8s_existing_tokens.stdout_lines | select('search', 'authentication,signing') | first | split() | first }}"
+  when:
+    - k8s_admin_conf_stat.stat.exists
+    - k8s_existing_tokens is defined
+    - k8s_existing_tokens.stdout_lines | length > 0
+
+- name: Retrieve CA certificate hash
+  ansible.builtin.shell: |
+    set -o pipefail
+    openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt |
+    openssl rsa -pubin -outform der 2>/dev/null |
+    openssl dgst -sha256 -hex |
+    sed 's/^.* //'
+  register: k8s_ca_hash
+  changed_when: false
+
+- name: Set CA certificate hash fact on all hosts
+  ansible.builtin.set_fact:
+    k8s_ca_cert_hash: "sha256:{{ k8s_ca_hash.stdout }}"
+
+- name: Patch kube-proxy ConfigMap to use local API server during bootstrap
+  ansible.builtin.command: >
+    kubectl patch configmap kube-proxy -n kube-system --type merge
+    -p '{"data":{"kubeconfig.conf":"apiVersion: v1\nkind: Config\nclusters:\n- cluster:\n    certificate-authority:
+    /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n    server:
+    https://{{ ansible_host }}:6443\n  name: default\ncontexts:\n- context:\n    cluster:
+    default\n    namespace: default\n    user: default\n  name: default\ncurrent-context:
+    default\nusers:\n- name: default\n  user:\n    tokenFile:
+    /var/run/secrets/kubernetes.io/serviceaccount/token\n"}}'
+  environment:
+    KUBECONFIG: /root/kubeadm-local-admin.conf
+  when: not k8s_admin_conf_stat.stat.exists
+  register: k8s_kube_proxy_patch
+  changed_when: k8s_kube_proxy_patch.rc == 0
+  failed_when: k8s_kube_proxy_patch.rc != 0
+
+- name: Restart kube-proxy to apply bootstrap config
+  ansible.builtin.command: kubectl delete pod -n kube-system -l k8s-app=kube-proxy
+  environment:
+    KUBECONFIG: /root/kubeadm-local-admin.conf
+  when: not k8s_admin_conf_stat.stat.exists
+  register: k8s_kube_proxy_restart
+  changed_when: k8s_kube_proxy_restart.rc == 0
+  failed_when: k8s_kube_proxy_restart.rc != 0

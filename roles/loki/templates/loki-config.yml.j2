@@ -1,0 +1,57 @@
+---
+# Loki configuration, rendered by the loki role from inventory variables.
+# Single binary (all targets in one process), tsdb schema, filesystem
+# object store on the dedicated data volume, retention enforced by the
+# compactor. No authentication: port 3100 must stay restricted to the
+# internal network (firewall + cloud security group).
+auth_enabled: false
+
+server:
+  http_listen_address: 0.0.0.0
+  http_listen_port: {{ loki_port }}
+  grpc_listen_port: {{ loki_grpc_port }}
+
+common:
+  path_prefix: {{ loki_data_dir }}
+  storage:
+    filesystem:
+      chunks_directory: {{ loki_data_dir }}/chunks
+      rules_directory: {{ loki_data_dir }}/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: "2024-04-01"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+storage_config:
+  tsdb_shipper:
+    active_index_directory: {{ loki_data_dir }}/tsdb-index
+    cache_location: {{ loki_data_dir }}/tsdb-cache
+
+compactor:
+  working_directory: {{ loki_data_dir }}/compactor
+  retention_enabled: true
+  # Required since Loki 3.x when retention is enabled; the delete
+  # requests are stored on the same filesystem object store.
+  delete_request_store: filesystem
+
+limits_config:
+  retention_period: {{ loki_retention_period }}
+  # Loki maps one of these labels to service_name at push time and sets
+  # it to unknown_service when none match (journald streams have none):
+  # pure label noise, disable it.
+  discover_service_name: []
+  reject_old_samples: true
+  reject_old_samples_max_age: {{ loki_reject_old_samples_max_age }}
+  ingestion_rate_strategy: local
+  ingestion_rate_mb: {{ loki_ingestion_rate_mb }}
+  ingestion_burst_size_mb: {{ loki_ingestion_burst_size_mb }}

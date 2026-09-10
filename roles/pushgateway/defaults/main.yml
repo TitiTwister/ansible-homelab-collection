@@ -1,0 +1,19 @@
+---
+# Default variables for pushgateway role
+
+# Pushgateway release (GitHub upstream binary)
+pushgateway_version: "1.11.3"
+
+# Pushgateway configuration
+pushgateway_port: 9091
+pushgateway_user: pushgateway
+pushgateway_group: pushgateway
+pushgateway_config_dir: /etc/pushgateway
+pushgateway_data_dir: /var/lib/pushgateway
+
+# Pushed metrics survive service restarts
+pushgateway_persistence_file: "{{ pushgateway_data_dir }}/pushgateway.dat"
+pushgateway_persistence_interval: "5m"
+
+# Firewall configuration
+pushgateway_firewall_zone: public

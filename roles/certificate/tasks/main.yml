@@ -1,0 +1,11 @@
+---
+# Request TLS certificates from the online CA server
+
+- name: Install certificate role dependencies
+  ansible.builtin.include_tasks: install.yml
+
+- name: Prepare directories and trust
+  ansible.builtin.include_tasks: prepare.yml
+
+- name: Request certificates
+  ansible.builtin.include_tasks: request_certs.yml

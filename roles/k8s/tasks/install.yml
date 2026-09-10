@@ -1,0 +1,18 @@
+---
+# Install kubeadm, kubelet and kubectl
+
+- name: Install Kubernetes packages
+  ansible.builtin.dnf:
+    name:
+      - "kubelet-{{ k8s_kubernetes_version_rpm }}"
+      - "kubeadm-{{ k8s_kubernetes_version_rpm }}"
+      - "kubectl-{{ k8s_kubernetes_version_rpm }}"
+    state: present
+    disable_excludes: kubernetes
+
+- name: Enable and start kubelet
+  ansible.builtin.systemd:
+    name: kubelet
+    enabled: true
+    state: started
+    daemon_reload: true

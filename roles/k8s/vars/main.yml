@@ -1,0 +1,40 @@
+---
+# Internal constants for the k8s role.
+
+# Usernames Forgejo refuses to create (models/user/user.go in forgejo v14);
+# the admin username is validated against this list before deploying.
+__k8s_forgejo_reserved_usernames:
+  - "."
+  - ".."
+  - "-"
+  - ".well-known"
+  - api
+  - metrics
+  - v2
+  - assets
+  - attachments
+  - avatar
+  - avatars
+  - repo-avatars
+  - captcha
+  - login
+  - org
+  - repo
+  - user
+  - admin
+  - devtest
+  - explore
+  - issues
+  - pulls
+  - milestones
+  - notifications
+  - report_abuse
+  - favicon.ico
+  - manifest.json
+  - robots.txt
+  - sitemap.xml
+  - ssh_info
+  - swagger.v1.json
+  - ghost
+  - gitea-actions
+  - forgejo-actions

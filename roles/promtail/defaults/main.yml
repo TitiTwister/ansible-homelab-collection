@@ -1,0 +1,25 @@
+---
+# Default variables for promtail role
+
+# Promtail release. Promtail is in maintenance mode: binaries stopped
+# shipping in Loki releases after 3.6.x, so this is the last binary
+# release. Fully compatible with the Loki 3.x push API.
+promtail_version: "3.6.11"
+
+# Loki push API endpoint; must be set by the inventory
+# (see group_vars/all/vars_promtail.yml)
+promtail_loki_push_url: ""
+
+# Promtail configuration
+promtail_user: promtail
+promtail_group: promtail
+promtail_config_dir: /etc/promtail
+promtail_config_file: "{{ promtail_config_dir }}/promtail-config.yml"
+promtail_data_dir: /var/lib/promtail
+
+# Local status/positions API, loopback only
+promtail_http_port: 9080
+
+# Only ship journal entries newer than this on first start, so a fresh
+# deployment does not replay months of backlog
+promtail_journal_max_age: "24h"

@@ -1,0 +1,317 @@
+---
+# Kubernetes cluster role - defaults
+# Override these in inventory group_vars for your environment
+
+# ------------------------------------------------------------------------------
+# Versions
+# ------------------------------------------------------------------------------
+k8s_kubernetes_version: "1.36.4"
+k8s_kubernetes_release: "150500.1.1"
+k8s_kubernetes_version_rpm: "{{ k8s_kubernetes_version }}-{{ k8s_kubernetes_release }}"
+
+# Container runtime version
+k8s_containerd_version: "2.3.3"
+
+# Containerd package name
+# Docker CE provides 'containerd.io-<version>' on Rocky/Alma/RHEL/Rocky.
+k8s_containerd_package: "containerd.io-{{ k8s_containerd_version }}"
+
+# CNI plugin selection: 'cilium' or 'calico'
+k8s_cni: "cilium"
+
+# CNI versions
+k8s_cilium_version: "1.20.1"
+k8s_calico_version: "v3.28.1"
+
+# Hubble UI (Cilium chart). Relay is always enabled alongside Hubble.
+k8s_cilium_hubble_ui_enabled: true
+k8s_cilium_hubble_ui_service_type: "NodePort"
+k8s_cilium_hubble_ui_nodeport: 31235
+
+# Helm version to install
+k8s_helm_version: "3.17.0"
+
+# ------------------------------------------------------------------------------
+# CSI (Container Storage Interface)
+# ------------------------------------------------------------------------------
+# CSI selection: 'longhorn' or 'none'
+k8s_csi: "longhorn"
+
+# Longhorn Helm chart version
+k8s_longhorn_version: "1.8.1"
+
+# Longhorn UI (longhorn-frontend service) exposure
+k8s_longhorn_ui_service_type: "NodePort"
+k8s_longhorn_ui_nodeport: 30800
+
+# ------------------------------------------------------------------------------
+# Networking
+# ------------------------------------------------------------------------------
+# Existing node network the cluster nodes live in
+k8s_node_network_cidr: "10.0.0.0/24"
+
+# Pod network CIDR (must not overlap with node_network or service_cidr)
+k8s_pod_subnet: "10.244.0.0/16"
+
+# Service network CIDR (must not overlap with node_network or pod_subnet)
+k8s_service_subnet: "10.96.0.0/12"
+
+# Kubernetes DNS service IP (typically .10 of the service subnet)
+k8s_cluster_dns: "10.96.0.10"
+
+# ------------------------------------------------------------------------------
+# API endpoint (HA via external HAProxy)
+# ------------------------------------------------------------------------------
+# HA API endpoint. Override in inventory for your environment.
+k8s_api_endpoint: "k8s-api.example.com"
+k8s_api_port: 6443
+k8s_control_plane_endpoint: "{{ k8s_api_endpoint }}:{{ k8s_api_port }}"
+
+# ------------------------------------------------------------------------------
+# Cluster identity
+# ------------------------------------------------------------------------------
+# Generic cluster name. Override in inventory for your environment.
+k8s_cluster_name: "k8s-cluster"
+
+# Bootstrap primary master hostname.
+# Must be defined in inventory; no default is provided so the role stays
+# inventory-agnostic (e.g., groups['your_masters'] | first).
+# k8s_bootstrap_host: ""
+
+# ------------------------------------------------------------------------------
+# Paths
+# ------------------------------------------------------------------------------
+k8s_kubeconfig_dir: "/etc/kubernetes"
+k8s_admin_kubeconfig: "{{ k8s_kubeconfig_dir }}/admin.conf"
+# Directory on the controller where kubeconfigs and monitoring credentials
+# are fetched. Must be defined in inventory.
+# k8s_local_kubeconfig_dir: "/path/to/files/k8s"
+
+# ------------------------------------------------------------------------------
+# Feature gates / component configuration
+# ------------------------------------------------------------------------------
+k8s_kubelet_extra_args: ""
+
+# Node type: 'master', 'worker', 'controller', 'addons', or 'etcd-metrics'.
+# Set by the playbook per host group.
+k8s_node_type: ""
+
+# ------------------------------------------------------------------------------
+# etcd metrics exposure (node_type: etcd-metrics)
+# ------------------------------------------------------------------------------
+# Kubeadm binds the etcd metrics listener to loopback only. These variables
+# rebind it so the site Prometheus can scrape job etcd-k8s on port 2381.
+# The playbook must run this node type with serial: 1: kubelet restarts the
+# etcd static pod when its manifest changes, and members must roll one at a
+# time to keep quorum.
+k8s_etcd_manifest_path: /etc/kubernetes/manifests/etcd.yaml
+k8s_etcd_listen_metrics_urls: "http://0.0.0.0:2381"
+k8s_etcd_readiness_url: "http://127.0.0.1:2381/readyz"
+
+# ------------------------------------------------------------------------------
+# MetalLB (optional)
+# ------------------------------------------------------------------------------
+k8s_metallb_enabled: true
+k8s_metallb_version: "0.14.8"
+# Pool of IPs from the node network used for LoadBalancer services.
+# Override in inventory for your environment.
+k8s_metallb_pool_name: "k8s-pool"
+k8s_metallb_pool_range: "10.0.0.200-10.0.0.210"
+k8s_metallb_l2_advertisement: true
+
+# ------------------------------------------------------------------------------
+# Monitoring addons (optional)
+# ------------------------------------------------------------------------------
+# kube-state-metrics: cluster state metrics scraped by the site Prometheus.
+# Exposed as a NodePort; scrape through the HAProxy ksm_metrics TCP backend
+# (see the haproxy role TCP backends) so a single target follows a
+# healthy worker instead of duplicating the series per node.
+k8s_kubestatemetrics_enabled: true
+k8s_kubestatemetrics_chart_version: "8.4.2"
+k8s_kubestatemetrics_namespace: "kube-system"
+k8s_kubestatemetrics_nodeport: 30801
+
+# metrics-server: in-cluster Metrics API for `kubectl top` and HPA.
+# kubeadm kubelets serve self-signed certificates; the chart is configured
+# to accept them.
+k8s_metricsserver_enabled: true
+k8s_metricsserver_chart_version: "3.14.0"
+k8s_metricsserver_namespace: "kube-system"
+
+# Prometheus scrape RBAC: ServiceAccount, ClusterRole and a long-lived
+# token Secret. The token and the cluster CA are fetched to the
+# k8s_local_kubeconfig_dir/monitoring directory on the control node for
+# the Prometheus hosts to use (bearer_token_file + ca_file in the scrape
+# jobs).
+k8s_monitoring_rbac_enabled: true
+k8s_monitoring_namespace: "monitoring"
+k8s_monitoring_serviceaccount: "prometheus"
+
+# Headlamp: Kubernetes web UI. The chart creates the ServiceAccount and a
+# cluster-admin ClusterRoleBinding; log in by pasting a token created with
+# `kubectl -n <namespace> create token <serviceaccount>` (never committed).
+k8s_headlamp_enabled: true
+k8s_headlamp_chart_version: "0.45.0"
+k8s_headlamp_namespace: "headlamp"
+k8s_headlamp_serviceaccount: "headlamp-admin"
+k8s_headlamp_nodeport: 31236
+
+# ------------------------------------------------------------------------------
+# Controller tooling (optional)
+# ------------------------------------------------------------------------------
+# k9s terminal UI for cluster administration.
+k8s_controller_install_k9s: true
+k8s_k9s_version: "0.51.0"
+
+# ------------------------------------------------------------------------------
+# Forgejo (optional git forge)
+# ------------------------------------------------------------------------------
+# Deploy Forgejo and its Actions runner from the controller VM using Helm
+# (oci://code.forgejo.org/forgejo-helm/forgejo). Requires MetalLB: a single
+# LoadBalancer IP is shared between the web (port 80) and SSH (port 22)
+# services, and an external PostgreSQL database reached over TLS.
+k8s_forgejo_enabled: false
+k8s_forgejo_chart_version: "16.0.1"
+k8s_forgejo_namespace: "forgejo"
+
+# Public endpoints. The web hostname must resolve to the HAProxy host; the
+# SSH hostname is advertised in SSH clone URLs and defaults to the web
+# hostname.
+k8s_forgejo_hostname: "git.example.com"
+k8s_forgejo_ssh_hostname: "{{ k8s_forgejo_hostname }}"
+# Port advertised in SSH clone URLs (app.ini server.SSH_PORT), e.g. the port
+# of a reverse proxy TCP frontend. Not the port the container listens on.
+k8s_forgejo_ssh_port: 22
+
+# MetalLB IP shared by the web (port 80) and SSH (port 22) services.
+k8s_forgejo_loadbalancer_ip: ""
+
+# Repository storage (uses the cluster default StorageClass when empty).
+k8s_forgejo_persistence_size: "20Gi"
+k8s_forgejo_storage_class: ""
+
+# External PostgreSQL database, reached with TLS (verify-full).
+k8s_forgejo_db_host: ""
+k8s_forgejo_db_port: 5432
+k8s_forgejo_db_name: "forgejo"
+k8s_forgejo_db_user: "forgejo"
+# Database password; set from a vault variable in inventory.
+k8s_forgejo_db_password: ""
+# CA certificates (paths on the Ansible controller): the step-ca root and
+# intermediate, concatenated into the forgejo-ca-bundle Secret and trusted
+# by all Forgejo and runner containers (SSL_CERT_DIR adds them to the Go
+# system pool alongside each image's own public roots).
+k8s_forgejo_db_ca_files: []
+
+# Initial administrator account. The password is set from a vault variable
+# in inventory and only applied when the account is first created. The
+# username must not be a Forgejo reserved name (validated in the tasks).
+k8s_forgejo_admin_username: "forgejo-admin"
+k8s_forgejo_admin_email: "admin@{{ k8s_forgejo_hostname }}"
+k8s_forgejo_admin_password: ""
+
+# Forgejo Actions runner (offline registration with a shared secret).
+k8s_forgejo_runner_enabled: true
+k8s_forgejo_runner_name: "forgejo-runner"
+k8s_forgejo_runner_image: "data.forgejo.org/forgejo/runner:13"
+k8s_forgejo_runner_dind_image: "docker:28-dind"
+# Runner registration scope: "{owner}" or "{owner}/{repo}"; empty for a
+# global (instance-wide) runner.
+k8s_forgejo_runner_scope: ""
+# 40-character hexadecimal secret shared between Forgejo and the runner;
+# set from a vault variable in inventory.
+k8s_forgejo_runner_secret: ""
+# Runner UUID returned by forgejo-cli at registration time; empty default
+# keeps the manifest renderable in check mode.
+k8s_forgejo_runner_uuid: ""
+k8s_forgejo_runner_capacity: 1
+k8s_forgejo_runner_labels:
+  - "docker:docker://node:22-bookworm"
+  - "ubuntu-latest:docker://node:22-bookworm"
+k8s_forgejo_runner_data_size: "5Gi"
+k8s_forgejo_runner_docker_size: "20Gi"
+
+# ------------------------------------------------------------------------------
+# Forgejo backup (optional)
+# ------------------------------------------------------------------------------
+# Encrypted dump backups of the Forgejo instance, run as an in-cluster
+# CronJob. The backup container execs `forgejo dump` inside the live pod
+# over kubectl (RBAC-restricted ServiceAccount) and streams a single zip
+# out: git repositories, LFS objects, attachments, avatars, packages,
+# app.ini/custom and a native database dump (forgejo-db.sql — Forgejo dumps
+# PostgreSQL in-process, no pg_dump binary needed in the container). The
+# zip is encrypted client-side (salted AES-256-CBC with PBKDF2, the same
+# cipher family as the pgBackRest repository) and uploaded to S3. Without
+# the cipher passphrase the backups are unreadable. The PostgreSQL cluster
+# is separately covered by pgBackRest point-in-time recovery.
+#
+# The backup toolchain image (bash, kubectl, openssl, aws-cli, python3) is
+# built on the cluster by a kaniko Job from a rendered Containerfile and
+# pushed to the Forgejo container registry; the CronJob pulls it from
+# there (registry credentials in the forgejo-backup-registry Secret). The
+# k8s nodes must trust the CA that signed the registry certificate for
+# that pull — the certificate role, applied to the node plays in the
+# playbook, installs that trust.
+k8s_forgejo_backup_enabled: false
+# Standard cron expression for the CronJob schedule (UTC).
+k8s_forgejo_backup_schedule: "0 3 * * *"
+# Encrypted dumps to keep in the bucket (oldest are pruned first).
+k8s_forgejo_backup_retention: 14
+
+# S3-compatible object storage. Override all three in inventory.
+k8s_forgejo_backup_s3_bucket: "CHANGE_ME"
+k8s_forgejo_backup_s3_endpoint: "CHANGE_ME"
+k8s_forgejo_backup_s3_region: "CHANGE_ME"
+# Prefix (folder) inside the bucket; object keys sort chronologically.
+k8s_forgejo_backup_s3_prefix: "forgejo"
+
+# Access key and cipher passphrase; set from vault variables in inventory.
+k8s_forgejo_backup_s3_key: ""
+k8s_forgejo_backup_s3_key_secret: ""
+k8s_forgejo_backup_cipher_pass: ""
+
+# PBKDF2 iteration count for the encryption step.
+k8s_forgejo_backup_pbkdf2_iterations: 600000
+
+# Prometheus pushgateway URLs (http://host:9091) receiving backup job
+# metrics pushed by the backup script. Empty disables metric pushes.
+k8s_forgejo_backup_pushgateway_urls: []
+
+# Forgejo container registry hosting the backup toolchain image. The
+# registry credentials default to the Forgejo admin account (vault).
+k8s_forgejo_backup_registry_host: "{{ k8s_forgejo_hostname }}"
+k8s_forgejo_backup_registry_owner: "{{ k8s_forgejo_admin_username }}"
+k8s_forgejo_backup_registry_user: "{{ k8s_forgejo_admin_username }}"
+k8s_forgejo_backup_registry_password: "{{ k8s_forgejo_admin_password }}"
+k8s_forgejo_backup_image_name: "forgejo-backup"
+# Bump the suffix to force a new toolchain image build and push.
+k8s_forgejo_backup_image_tag: "{{ k8s_kubernetes_version }}-1"
+k8s_forgejo_backup_image: >-
+  {{ k8s_forgejo_backup_registry_host ~ '/' ~ k8s_forgejo_backup_registry_owner
+     ~ '/' ~ k8s_forgejo_backup_image_name ~ ':' ~ k8s_forgejo_backup_image_tag }}
+
+# Builder image for the toolchain build. kaniko is archived but stable;
+# the Containerfile is builder-agnostic and works with any OCI builder.
+k8s_forgejo_backup_kaniko_image: "gcr.io/kaniko-project/executor:v1.23.2"
+# kubectl version baked into the toolchain image (tracks the cluster).
+k8s_forgejo_backup_kubectl_version: "{{ k8s_kubernetes_version }}"
+
+# ------------------------------------------------------------------------------
+# Firewall zone
+# ------------------------------------------------------------------------------
+k8s_firewall_zone: "public"
+
+# ------------------------------------------------------------------------------
+# Controller VM options
+# ------------------------------------------------------------------------------
+# Install kubeadm on controller VMs (useful for token/cert management).
+k8s_controller_install_kubeadm: false
+
+# aws-cli (appstream awscli2) on controller VMs, used by the backup
+# restore runbook to fetch encrypted dumps from S3.
+k8s_controller_awscli_enabled: "{{ k8s_forgejo_backup_enabled | bool }}"
+
+# Host used to deploy cluster addons from (CNI, MetalLB, CSI).
+# Must be defined in inventory; no default is provided so the role stays
+# inventory-agnostic (e.g., groups['your_controllers'] | first).
+# k8s_addons_host: ""

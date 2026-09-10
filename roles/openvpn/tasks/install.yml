@@ -1,0 +1,15 @@
+---
+# Install OpenVPN package
+
+- name: Install OpenVPN
+  ansible.builtin.dnf:
+    name:
+      - openvpn
+    state: present
+  become: true
+
+- name: Ensure OpenVPN service is enabled
+  ansible.builtin.systemd:
+    name: openvpn-server@server
+    enabled: true
+  become: true

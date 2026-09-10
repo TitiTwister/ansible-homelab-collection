@@ -1,0 +1,41 @@
+---
+# Default variables for openvpn role
+
+# OpenVPN configuration
+openvpn_port: 1194
+openvpn_protocol: udp
+openvpn_dev: tun
+
+# VPN subnet
+openvpn_subnet: "10.8.0.0"
+openvpn_netmask: "255.255.255.0"
+openvpn_cidr: "10.8.0.0/24"
+
+# Certificate paths on OpenVPN server
+openvpn_cert_dir: "/etc/openvpn/certs"
+
+# PKI source host (where certs are generated), reached over SSH
+openvpn_pki_host: "pki.example.com"
+openvpn_pki_user: "pki"
+# Private key used to fetch the certificate tarball from the PKI host.
+# Must be defined in inventory.
+# openvpn_pki_ssh_key: "/path/to/id_rsa"
+openvpn_pki_cert_path: "/etc/step-ca/certs"
+openvpn_pki_ca_path: "/etc/step-ca"
+
+openvpn_clients:
+  - client1
+  - client2
+
+# Network settings
+openvpn_keepalive: "10 120"
+openvpn_cipher: "AES-256-GCM"
+openvpn_tls_version_min: "1.2"
+
+# OpenVPN Server IPs (used by clients to connect)
+openvpn_server_public_ip: "198.51.100.1"
+openvpn_server_private_ip: "10.8.0.1"
+
+# Directory on the controller where client configurations (certs, keys
+# and .ovpn files) are generated. Must be defined in inventory.
+# openvpn_client_config_dir: "/path/to/files/openvpn"

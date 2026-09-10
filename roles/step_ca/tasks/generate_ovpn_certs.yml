@@ -1,0 +1,98 @@
+---
+# Generate OpenVPN server and client certificates on the offline PKI host
+# Signed by the Intermediate CA (from setup_pki.yml)
+# The OpenVPN role will SCP these certs to the OVPN server
+
+- name: Create OpenVPN certs directory on the PKI host
+  ansible.builtin.file:
+    path: "{{ step_ca_install_path }}/certs"
+    state: directory
+    owner: "{{ step_ca_user }}"
+    group: "{{ step_ca_group }}"
+    mode: "0750"
+  become: true
+
+- name: Generate OpenVPN server certificate (leaf)
+  ansible.builtin.command: >
+    /usr/local/bin/step certificate create
+    --profile leaf
+    --ca {{ step_ca_intermediate_cert_path }}
+    --ca-key {{ step_ca_intermediate_key_path }}
+    --ca-password-file {{ step_ca_install_path }}/.intermediate_ca_password
+    --no-password --insecure
+    --kty EC --curve P-256
+    --san {{ step_ca_openvpn_server_public_ip }}
+    --san {{ step_ca_openvpn_server_private_ip }}
+    --san {{ step_ca_openvpn_server_cn }}
+    --not-after {{ step_ca_leaf_validity }}
+    "{{ step_ca_openvpn_server_cn }}"
+    {{ step_ca_install_path }}/certs/openvpn-server.crt
+    {{ step_ca_install_path }}/certs/openvpn-server.key
+  args:
+    creates: "{{ step_ca_install_path }}/certs/openvpn-server.crt"
+  become: true
+
+- name: Generate OpenVPN client certificates (leaf)
+  ansible.builtin.command: >
+    /usr/local/bin/step certificate create
+    --profile leaf
+    --ca {{ step_ca_intermediate_cert_path }}
+    --ca-key {{ step_ca_intermediate_key_path }}
+    --ca-password-file {{ step_ca_install_path }}/.intermediate_ca_password
+    --no-password --insecure
+    --kty EC --curve P-256
+    --not-after {{ step_ca_leaf_validity }}
+    "{{ item }}"
+    {{ step_ca_install_path }}/certs/{{ item }}.crt
+    {{ step_ca_install_path }}/certs/{{ item }}.key
+  args:
+    creates: "{{ step_ca_install_path }}/certs/{{ item }}.crt"
+  loop: "{{ step_ca_openvpn_clients }}"
+  become: true
+
+- name: Set permissions on OpenVPN server cert
+  ansible.builtin.file:
+    path: "{{ step_ca_install_path }}/certs/openvpn-server.crt"
+    owner: "{{ step_ca_user }}"
+    group: "{{ step_ca_group }}"
+    mode: "0644"
+  become: true
+
+- name: Set permissions on OpenVPN server key
+  ansible.builtin.file:
+    path: "{{ step_ca_install_path }}/certs/openvpn-server.key"
+    owner: "{{ step_ca_user }}"
+    group: "{{ step_ca_group }}"
+    mode: "0600"
+  become: true
+
+- name: Set permissions on client certificates
+  ansible.builtin.file:
+    path: "{{ step_ca_install_path }}/certs/{{ item }}.crt"
+    owner: "{{ step_ca_user }}"
+    group: "{{ step_ca_group }}"
+    mode: "0644"
+  loop: "{{ step_ca_openvpn_clients }}"
+  become: true
+
+- name: Set permissions on client keys
+  ansible.builtin.file:
+    path: "{{ step_ca_install_path }}/certs/{{ item }}.key"
+    owner: "{{ step_ca_user }}"
+    group: "{{ step_ca_group }}"
+    mode: "0600"
+  loop: "{{ step_ca_openvpn_clients }}"
+  become: true
+
+# Create tarball of all OpenVPN certs for easy SCP transfer
+# World-readable so the OpenVPN server can fetch it via SCP as the
+# configured PKI user.
+- name: Create OpenVPN certs tarball
+  community.general.archive:
+    path:
+      - "{{ step_ca_install_path }}/ca-chain.crt"
+      - "{{ step_ca_certs_path }}"
+    dest: /tmp/ovpn-certs.tar.gz
+    format: gz
+    mode: "0644"
+  become: true

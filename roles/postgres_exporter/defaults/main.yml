@@ -1,0 +1,14 @@
+---
+# Default variables for postgres_exporter role
+
+postgres_exporter_version: "0.16.0"
+postgres_exporter_port: 9187
+postgres_exporter_user: postgres_exporter
+postgres_exporter_group: postgres_exporter
+postgres_exporter_install_dir: /usr/local/bin
+postgres_exporter_config_dir: /etc/postgres_exporter
+
+# Connection string for the exporter.
+# Example:
+# postgres_exporter_data_source_name: "postgresql://postgres_exporter:password@localhost:5432/postgres?sslmode=disable"
+postgres_exporter_data_source_name: ""

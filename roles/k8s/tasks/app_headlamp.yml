@@ -1,0 +1,91 @@
+---
+# Deploy Headlamp (Kubernetes web UI) using Helm from the controller VM.
+# The chart creates the ServiceAccount and a cluster-admin
+# ClusterRoleBinding. Log in by pasting a token created with
+# `kubectl -n <namespace> create token <serviceaccount>`; that admin
+# token is never stored in the repository.
+
+- name: Ensure Headlamp Helm repository is added
+  ansible.builtin.command: /usr/local/bin/helm repo add headlamp https://kubernetes-sigs.github.io/headlamp/
+  register: k8s_headlamp_repo_add
+  # helm >= 3.17 succeeds when the repository already exists, making this
+  # cache maintenance like the repo update below. On older helm the
+  # already-exists error is tolerated instead of failing.
+  changed_when: false
+  failed_when:
+    - k8s_headlamp_repo_add.rc != 0
+    - "'already exists' not in k8s_headlamp_repo_add.stderr"
+
+- name: Update Helm repositories
+  ansible.builtin.command: /usr/local/bin/helm repo update
+  changed_when: false
+
+- name: Render Headlamp Helm values
+  ansible.builtin.template:
+    src: headlamp-values.yaml.j2
+    dest: /tmp/headlamp-values.yaml
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Read deployed Headlamp release metadata
+  ansible.builtin.command: >
+    /usr/local/bin/helm get metadata headlamp
+    --namespace {{ k8s_headlamp_namespace }} -o json
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_headlamp_release
+  changed_when: false
+  failed_when: k8s_headlamp_release.rc not in [0, 1]
+  when: not ansible_check_mode
+
+- name: Read deployed Headlamp values
+  ansible.builtin.command: >
+    /usr/local/bin/helm get values headlamp
+    --namespace {{ k8s_headlamp_namespace }} -o json
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_headlamp_values_deployed
+  changed_when: false
+  failed_when: k8s_headlamp_values_deployed.rc not in [0, 1]
+  when: not ansible_check_mode
+
+- name: Read rendered Headlamp values
+  ansible.builtin.slurp:
+    src: /tmp/headlamp-values.yaml
+  register: k8s_headlamp_values_rendered
+  when: not ansible_check_mode
+
+- name: Install or upgrade Headlamp
+  ansible.builtin.command: >
+    /usr/local/bin/helm upgrade --install headlamp
+    headlamp/headlamp
+    --version {{ k8s_headlamp_chart_version }}
+    --namespace {{ k8s_headlamp_namespace }}
+    --create-namespace
+    -f /tmp/headlamp-values.yaml
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_headlamp_helm
+  # helm has no server-side diffing: it always prints "has been upgraded"
+  # and bumps the release revision. Only run the upgrade when the release,
+  # chart version or values actually differ.
+  when: >
+    k8s_headlamp_release.rc | default(1) != 0
+    or (k8s_headlamp_release.stdout | from_json).status != "deployed"
+    or (k8s_headlamp_release.stdout | from_json).version != k8s_headlamp_chart_version
+    or (k8s_headlamp_values_deployed.stdout | from_json) != (k8s_headlamp_values_rendered.content | b64decode | from_yaml)
+  changed_when: "'STATUS: deployed' in k8s_headlamp_helm.stdout or 'has been upgraded' in k8s_headlamp_helm.stdout"
+  until: k8s_headlamp_helm.rc == 0
+  retries: 3
+  delay: 30
+
+- name: Wait for Headlamp deployment to be available
+  ansible.builtin.command: >
+    kubectl --namespace {{ k8s_headlamp_namespace }}
+    wait --for=condition=available
+    deployment/headlamp
+    --timeout=300s
+  environment:
+    KUBECONFIG: /root/.kube/config
+  changed_when: false

@@ -1,0 +1,48 @@
+---
+# Configure Grafana provisioning
+
+- name: Deploy Grafana configuration
+  ansible.builtin.template:
+    src: grafana.ini.j2
+    dest: "{{ grafana_config_dir }}/grafana.ini"
+    owner: root
+    group: grafana
+    mode: "0640"
+  notify: restart grafana
+  when: grafana_admin_password is defined
+
+- name: Deploy Prometheus datasources
+  ansible.builtin.template:
+    src: datasources.yml.j2
+    dest: "{{ grafana_provisioning_dir }}/datasources/prometheus.yml"
+    owner: grafana
+    group: grafana
+    mode: "0644"
+  notify: restart grafana
+
+- name: Deploy dashboard provider configuration
+  ansible.builtin.template:
+    src: dashboards.yml.j2
+    dest: "{{ grafana_provisioning_dir }}/dashboards/dashboards.yml"
+    owner: grafana
+    group: grafana
+    mode: "0644"
+  notify: restart grafana
+
+- name: Deploy dashboard JSON files
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ grafana_data_dir }}/dashboards/{{ item | basename }}"
+    owner: grafana
+    group: grafana
+    mode: "0644"
+  with_fileglob:
+    - "{{ grafana_dashboards_src }}/*.json"
+  when:
+    - grafana_dashboards_src is defined
+  notify: restart grafana
+
+- name: Start Grafana service
+  ansible.builtin.systemd:
+    name: grafana-server
+    state: started

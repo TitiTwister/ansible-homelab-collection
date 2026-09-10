@@ -1,0 +1,8 @@
+---
+# Main tasks for loki role
+
+- name: Install Loki
+  ansible.builtin.import_tasks: install.yml
+
+- name: Configure Loki
+  ansible.builtin.import_tasks: configure.yml

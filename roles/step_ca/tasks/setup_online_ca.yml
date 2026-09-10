@@ -1,0 +1,172 @@
+---
+# Setup online CA server
+# This runs on the CA server host to deploy step-ca as a service
+
+- name: Create step-ca system user
+  ansible.builtin.user:
+    name: "{{ step_ca_server_user }}"
+    system: true
+    shell: /bin/false
+    create_home: true
+    home: "/home/{{ step_ca_server_user }}"
+  become: true
+
+- name: Create step-ca directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ step_ca_server_user }}"
+    group: "{{ step_ca_server_group }}"
+    mode: "0750"
+  become: true
+  loop:
+    - "{{ step_ca_install_path }}"
+    - "{{ step_ca_install_path }}/certs"
+    - "{{ step_ca_install_path }}/secrets"
+    - "{{ step_ca_install_path }}/config"
+    - "{{ step_ca_install_path }}/db"
+
+- name: Deploy Root CA certificate
+  ansible.builtin.copy:
+    content: "{{ lookup('ansible.builtin.file', step_ca_controller_files_dir ~ '/root_ca.crt') }}"
+    dest: "{{ step_ca_install_path }}/certs/root_ca.crt"
+    owner: "{{ step_ca_server_user }}"
+    group: "{{ step_ca_server_group }}"
+    mode: "0644"
+  become: true
+
+- name: Deploy Intermediate CA certificate
+  ansible.builtin.copy:
+    content: "{{ lookup('ansible.builtin.file', step_ca_controller_files_dir ~ '/intermediate_ca.crt') }}"
+    dest: "{{ step_ca_install_path }}/certs/intermediate_ca.crt"
+    owner: "{{ step_ca_server_user }}"
+    group: "{{ step_ca_server_group }}"
+    mode: "0644"
+  become: true
+
+- name: Deploy Intermediate CA private key
+  ansible.builtin.copy:
+    content: "{{ lookup('ansible.builtin.file', step_ca_controller_files_dir ~ '/intermediate_ca.key') }}"
+    dest: "{{ step_ca_install_path }}/secrets/intermediate_ca_key"
+    owner: "{{ step_ca_server_user }}"
+    group: "{{ step_ca_server_group }}"
+    mode: "0600"
+  become: true
+  no_log: true
+
+- name: Deploy Intermediate CA key password
+  ansible.builtin.copy:
+    content: "{{ step_ca_intermediate_password }}"
+    dest: "{{ step_ca_install_path }}/.password"
+    owner: "{{ step_ca_server_user }}"
+    group: "{{ step_ca_server_group }}"
+    mode: "0600"
+  become: true
+  no_log: true
+
+- name: Deploy provisioner password
+  ansible.builtin.copy:
+    content: "{{ step_ca_provisioner_password }}"
+    dest: "{{ step_ca_install_path }}/.provisioner_password"
+    owner: "{{ step_ca_server_user }}"
+    group: "{{ step_ca_server_group }}"
+    mode: "0600"
+  become: true
+  no_log: true
+
+- name: Check if provisioner key exists
+  ansible.builtin.stat:
+    path: "{{ step_ca_install_path }}/secrets/provisioner_key"
+  register: step_ca_provisioner_key_stat
+
+- name: Generate JWK provisioner key pair
+  ansible.builtin.command: >
+    /usr/local/bin/step crypto jwk create
+    {{ step_ca_install_path }}/secrets/provisioner_key.pub
+    {{ step_ca_install_path }}/secrets/provisioner_key
+    --password-file={{ step_ca_install_path }}/.provisioner_password
+  environment:
+    STEPPATH: "{{ step_ca_install_path }}"
+  when: not step_ca_provisioner_key_stat.stat.exists
+  become: true
+  become_user: "{{ step_ca_server_user }}"
+  changed_when: true
+  no_log: true
+
+- name: Set ownership on provisioner keys
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: "{{ step_ca_server_user }}"
+    group: "{{ step_ca_server_group }}"
+  become: true
+  loop:
+    - "{{ step_ca_install_path }}/secrets/provisioner_key.pub"
+    - "{{ step_ca_install_path }}/secrets/provisioner_key"
+
+- name: Read provisioner public key
+  ansible.builtin.slurp:
+    src: "{{ step_ca_install_path }}/secrets/provisioner_key.pub"
+  register: step_ca_provisioner_pub_key_b64
+  become: true
+  become_user: "{{ step_ca_server_user }}"
+
+- name: Set provisioner key facts
+  ansible.builtin.set_fact:
+    step_ca_provisioner_kid: "{{ (step_ca_provisioner_pub_key_b64.content | b64decode | from_json).kid }}"
+    step_ca_provisioner_key_x: "{{ (step_ca_provisioner_pub_key_b64.content | b64decode | from_json).x }}"
+    step_ca_provisioner_key_y: "{{ (step_ca_provisioner_pub_key_b64.content | b64decode | from_json).y }}"
+
+- name: Read encrypted provisioner private key
+  ansible.builtin.slurp:
+    src: "{{ step_ca_install_path }}/secrets/provisioner_key"
+  register: step_ca_provisioner_encrypted_key
+  become: true
+  become_user: "{{ step_ca_server_user }}"
+
+- name: Deploy ca.json configuration
+  ansible.builtin.template:
+    src: ca.json.j2
+    dest: "{{ step_ca_install_path }}/config/ca.json"
+    owner: "{{ step_ca_server_user }}"
+    group: "{{ step_ca_server_group }}"
+    mode: "0600"
+  become: true
+  no_log: true
+  notify: Restart step-ca
+
+- name: Deploy step-ca systemd service
+  ansible.builtin.template:
+    src: step-ca.service.j2
+    dest: /etc/systemd/system/step-ca.service
+    mode: "0644"
+  become: true
+  notify: Restart step-ca
+
+- name: Enable and start step-ca
+  ansible.builtin.systemd:
+    name: step-ca
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: true
+
+- name: Get Root CA fingerprint
+  ansible.builtin.shell: >
+    /usr/local/bin/step certificate fingerprint
+    {{ step_ca_install_path }}/certs/root_ca.crt
+  register: step_ca_ca_fingerprint
+  changed_when: false
+
+- name: Save CA fingerprint to controller
+  ansible.builtin.copy:
+    content: "{{ step_ca_ca_fingerprint.stdout }}"
+    dest: "{{ step_ca_controller_files_dir }}/fingerprint.txt"
+    mode: "0644"
+  delegate_to: localhost
+  become: false
+
+- name: Display CA server info
+  ansible.builtin.debug:
+    msg:
+      - "step-ca is running on https://{{ step_ca_server_ca_url }}:{{ step_ca_server_port }}"
+      - "Fingerprint: {{ step_ca_ca_fingerprint.stdout }}"

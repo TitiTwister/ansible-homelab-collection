@@ -1,0 +1,37 @@
+---
+# Assemble TLS certificate PEM bundles for HAProxy.
+# Expects certificates to have been requested already by the certificate role.
+
+- name: Ensure HAProxy certificates directory exists
+  ansible.builtin.file:
+    path: "{{ haproxy_certs_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Assemble HAProxy PEM bundles
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+      cat {{ certificate_certs_path }}/{{ item.name }}.crt \
+          {{ certificate_certs_path }}/{{ item.name }}-chain.crt \
+          {{ certificate_private_path }}/{{ item.name }}.key \
+          > {{ haproxy_certs_dir }}/{{ item.name }}.pem.tmp
+      mv {{ haproxy_certs_dir }}/{{ item.name }}.pem.tmp \
+         {{ haproxy_certs_dir }}/{{ item.name }}.pem
+    creates: "{{ haproxy_certs_dir }}/{{ item.name }}.pem"
+  loop: "{{ certificate_certs | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify: Reload haproxy
+
+- name: Set permissions on HAProxy PEM bundles
+  ansible.builtin.file:
+    path: "{{ haproxy_certs_dir }}/{{ item.name }}.pem"
+    owner: root
+    group: root
+    mode: "0640"
+  loop: "{{ certificate_certs | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"

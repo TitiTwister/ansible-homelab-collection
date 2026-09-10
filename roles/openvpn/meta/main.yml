@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: openvpn
+  namespace: tititwister
+  author: TitiTwister
+  description: OpenVPN server with certificates from a step-ca PKI host
+  license: Beerware
+  min_ansible_version: "2.18"
+  platforms:
+    - name: EL
+      versions: ["9"]
+  galaxy_tags: [vpn, networking, security]
+
+dependencies: []

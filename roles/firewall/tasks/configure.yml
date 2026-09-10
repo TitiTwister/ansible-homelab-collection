@@ -1,0 +1,81 @@
+---
+# Configure firewall rules
+
+# Identify custom service rules: have 'service' and 'port' but no standalone 'port' key clash
+# A custom service is defined when an item has both 'service' and 'port' keys.
+
+# Create custom service definitions for rules that define a service with ports
+- name: Ensure firewalld services directory exists
+  ansible.builtin.file:
+    path: /etc/firewalld/services
+    state: directory
+    mode: "0755"
+  when: firewall_rules | selectattr('service', 'defined') | selectattr('port', 'defined') | list | length > 0
+
+- name: Deploy custom firewalld service definitions
+  ansible.builtin.template:
+    src: service.xml.j2
+    dest: "/etc/firewalld/services/{{ item.service }}.xml"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ firewall_rules | selectattr('service', 'defined') | selectattr('port', 'defined') | list }}"
+  notify: Reload firewalld
+
+- name: Reload firewalld to pick up custom service definitions
+  ansible.builtin.meta: flush_handlers
+
+# Apply port-based rules (items that have 'port' but no 'service')
+- name: Enable firewalld ports
+  ansible.posix.firewalld:
+    port: "{{ item.port }}"
+    zone: "{{ item.zone | default(firewall_default_zone) }}"
+    permanent: true
+    state: "{{ item.state | default('enabled') }}"
+    immediate: true
+  loop: "{{ firewall_rules | selectattr('port', 'defined') | rejectattr('service', 'defined') | list }}"
+  when: firewall_rules | length > 0
+
+# Apply service-based rules (items that have 'service', including custom ones with 'port')
+- name: Enable firewalld services
+  ansible.posix.firewalld:
+    service: "{{ item.service }}"
+    zone: "{{ item.zone | default(firewall_default_zone) }}"
+    permanent: true
+    state: "{{ item.state | default('enabled') }}"
+    immediate: true
+  loop: "{{ firewall_rules | selectattr('service', 'defined') | list }}"
+  when: firewall_rules | length > 0
+
+# Apply source rules (add source CIDR to zone)
+- name: Add source networks to firewalld zones
+  ansible.posix.firewalld:
+    source: "{{ item.source }}"
+    zone: "{{ item.zone | default(firewall_default_zone) }}"
+    permanent: true
+    state: "{{ item.state | default('enabled') }}"
+    immediate: true
+  loop: "{{ firewall_rules | selectattr('source', 'defined') | list }}"
+  when: firewall_rules | selectattr('source', 'defined') | list | length > 0
+  notify: Reload firewalld
+
+# Apply masquerade rules
+- name: Enable masquerade on firewalld zones
+  ansible.posix.firewalld:
+    masquerade: true
+    zone: "{{ item.zone | default(firewall_default_zone) }}"
+    permanent: true
+    state: "{{ item.state | default('enabled') }}"
+    immediate: true
+  loop: "{{ firewall_rules | selectattr('masquerade', 'defined') | selectattr('masquerade') | list }}"
+  when: firewall_rules | selectattr('masquerade', 'defined') | selectattr('masquerade') | list | length > 0
+  notify: Reload firewalld
+
+# Enable IP forwarding
+- name: Enable IP forwarding
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    state: present
+    reload: true
+  when: firewall_ip_forward | bool

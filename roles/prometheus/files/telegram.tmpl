@@ -1,0 +1,34 @@
+{{ define "telegram.default.message" }}
+{{ if .Alerts.Firing }}
+🔔 <b>FIRING</b> ({{ len .Alerts.Firing }})
+
+{{ range .Alerts.Firing }}
+<b>{{ .Labels.alertname }}</b>
+{{- if .Labels.severity }}
+  Severity: {{ .Labels.severity }}
+{{- end }}
+{{- if .Labels.instance }}
+  Instance: {{ .Labels.instance }}
+{{- end }}
+{{- if .Annotations.summary }}
+  Summary: {{ .Annotations.summary }}
+{{- end }}
+{{- if .Annotations.description }}
+  Description: {{ .Annotations.description }}
+{{- end }}
+  Started: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+{{ end }}
+{{ end }}
+
+{{ if .Alerts.Resolved }}
+✅ <b>RESOLVED</b> ({{ len .Alerts.Resolved }})
+
+{{ range .Alerts.Resolved }}
+<b>{{ .Labels.alertname }}</b>
+{{- if .Labels.instance }}
+  Instance: {{ .Labels.instance }}
+{{- end }}
+  Resolved: {{ .EndsAt.Format "2006-01-02 15:04:05" }}
+{{ end }}
+{{ end }}
+{{ end }}

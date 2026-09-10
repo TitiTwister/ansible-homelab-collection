@@ -1,0 +1,63 @@
+---
+# Configure Alertmanager and Prometheus alerting rules
+
+# Alertmanager configuration
+- name: Create Alertmanager templates directory
+  ansible.builtin.file:
+    path: "{{ prometheus_alertmanager_config_dir }}/templates"
+    state: directory
+    owner: alertmanager
+    group: alertmanager
+    mode: '0755'
+
+- name: Deploy Alertmanager configuration
+  ansible.builtin.template:
+    src: alertmanager.yml.j2
+    dest: "{{ prometheus_alertmanager_config_dir }}/alertmanager.yml"
+    owner: alertmanager
+    group: alertmanager
+    mode: '0640'
+  notify: restart alertmanager
+
+- name: Deploy Telegram message template
+  ansible.builtin.copy:
+    src: telegram.tmpl
+    dest: "{{ prometheus_alertmanager_config_dir }}/templates/telegram.tmpl"
+    owner: alertmanager
+    group: alertmanager
+    mode: '0644'
+  notify: restart alertmanager
+
+# Prometheus alerting rules
+- name: Create Prometheus rules directory
+  ansible.builtin.file:
+    path: "{{ prometheus_rules_dir }}"
+    state: directory
+    owner: prometheus
+    group: prometheus
+    mode: '0755'
+
+- name: Deploy alert rules
+  ansible.builtin.template:
+    src: alert_rules.yml.j2
+    dest: "{{ prometheus_rules_dir }}/alert_rules.yml"
+    owner: prometheus
+    group: prometheus
+    mode: '0644'
+  notify: restart prometheus
+
+# Update Prometheus config to include alertmanager and rules
+- name: Re-deploy Prometheus configuration with alerting
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ prometheus_config_dir }}/prometheus.yml"
+    owner: prometheus
+    group: prometheus
+    mode: '0644'
+  notify: restart prometheus
+
+# Start Alertmanager
+- name: Start Alertmanager service
+  ansible.builtin.systemd:
+    name: alertmanager
+    state: started

@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: firewall
+  namespace: tititwister
+  author: TitiTwister
+  description: firewalld rules driven from inventory data
+  license: Beerware
+  min_ansible_version: "2.18"
+  platforms:
+    - name: EL
+      versions: ["9"]
+  galaxy_tags: [security, firewall, networking]
+
+dependencies: []

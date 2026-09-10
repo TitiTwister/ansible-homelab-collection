@@ -1,0 +1,78 @@
+// named.conf - Primary DNS server
+// Managed by Ansible
+
+{% if bind_tsig_key_secret %}
+key "{{ bind_tsig_key_name }}" {
+    algorithm {{ bind_tsig_key_algorithm }};
+    secret "{{ bind_tsig_key_secret }}";
+};
+
+{% endif %}
+acl "trusted" {
+{% for net in bind_allowed_nets %}
+    {{ net }};
+{% endfor %}
+};
+
+options {
+    listen-on port 53 { any; };
+    listen-on-v6 port 53 { none; };
+    directory       "{{ bind_zones_dir }}";
+    dump-file       "/var/named/data/cache_dump.db";
+    statistics-file "/var/named/data/named_stats.txt";
+    memstatistics-file "/var/named/data/named_mem_stats.txt";
+
+    allow-query     { trusted; };
+    allow-query-cache { trusted; };
+    allow-recursion { trusted; };
+    recursion yes;
+
+    forwarders {
+{% for fw in bind_forwarders %}
+        {{ fw }};
+{% endfor %}
+    };
+    forward first;
+
+    dnssec-validation auto;
+
+    managed-keys-directory "/var/named/dynamic";
+    pid-file "/run/named/named.pid";
+    session-keyfile "/run/named/session.key";
+};
+
+logging {
+    channel default_debug {
+        file "data/named.run";
+        severity dynamic;
+    };
+};
+
+zone "." IN {
+    type hint;
+    file "named.ca";
+};
+
+// Forward zone - primary
+zone "{{ bind_zone_name }}" IN {
+    type primary;
+    file "{{ bind_zones_dir }}/db.{{ bind_zone_name }}";
+    allow-transfer { {{ bind_secondary_ip }}; };
+    also-notify { {{ bind_secondary_ip }}; };
+    notify yes;
+{% if bind_tsig_key_secret %}
+    allow-update { key {{ bind_tsig_key_name }}; };
+{% endif %}
+};
+
+{% for rev in bind_reverse_zones %}
+// Reverse zone - {{ rev.network }}
+zone "{{ rev.zone }}" IN {
+    type primary;
+    file "{{ bind_zones_dir }}/db.{{ rev.zone }}";
+    allow-transfer { {{ bind_secondary_ip }}; };
+    also-notify { {{ bind_secondary_ip }}; };
+    notify yes;
+};
+
+{% endfor %}

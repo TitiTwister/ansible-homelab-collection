@@ -1,0 +1,381 @@
+groups:
+  - name: host_alerts
+    rules:
+      # Node exporter / host unreachable
+      - alert: InstanceDown
+        expr: up{job="node"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Instance {% raw %}{{ $labels.instance }}{% endraw %} is down"
+          description: "Node exporter on {% raw %}{{ $labels.instance }}{% endraw %} has been unreachable for more than 5 minutes."
+
+      # High CPU usage
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {% raw %}{{ $labels.instance }}{% endraw %}"
+          description: "CPU usage is above 80% (current: {% raw %}{{ $value | printf \"%.1f\" }}{% endraw %}%) for more than 10 minutes."
+
+      # High memory usage
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {% raw %}{{ $labels.instance }}{% endraw %}"
+          description: "Memory usage is above 85% (current: {% raw %}{{ $value | printf \"%.1f\" }}{% endraw %}%) for more than 5 minutes."
+
+      # Low disk space
+      - alert: DiskSpaceLow
+        expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"})) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low disk space on {% raw %}{{ $labels.instance }}{% endraw %}"
+          description: "Disk usage on {% raw %}{{ $labels.mountpoint }}{% endraw %} is above 85% (current: {% raw %}{{ $value | printf \"%.1f\" }}{% endraw %}%)."
+
+      # High disk I/O wait
+      - alert: HighDiskIO
+        expr: rate(node_disk_io_time_seconds_total[5m]) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High disk I/O on {% raw %}{{ $labels.instance }}{% endraw %}"
+          description: "Disk device {% raw %}{{ $labels.device }}{% endraw %} is experiencing >90% I/O utilization for more than 10 minutes."
+
+      # System load too high
+      - alert: HighSystemLoad
+        expr: node_load15 / count without(cpu, mode) (node_cpu_seconds_total{mode="idle"}) > 2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High system load on {% raw %}{{ $labels.instance }}{% endraw %}"
+          description: "15-minute load average is more than 2x the number of CPUs for over 15 minutes."
+
+  - name: prometheus_alerts
+    rules:
+      # Prometheus target scrape errors
+      - alert: PrometheusTargetScrapingSlow
+        expr: prometheus_target_interval_length_seconds{quantile="0.99"} > 60
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus scraping is slow"
+          description: "Prometheus p99 scrape duration exceeds 60 seconds."
+
+      # Prometheus config reload failed
+      - alert: PrometheusConfigReloadFailed
+        expr: prometheus_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus config reload failed"
+          description: "Prometheus configuration reload has failed. Check the configuration syntax."
+
+  - name: alertmanager_alerts
+    rules:
+      - alert: AlertmanagerDown
+        expr: up{job="alertmanager"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Alertmanager is down"
+          description: "Alertmanager has been unreachable for more than 2 minutes."
+
+  - name: prometheus_ha_alerts
+    rules:
+      - alert: PrometheusHAReplicaMissing
+        expr: count by (__name__) (up{job="prometheus"}) < 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus HA replica missing"
+          description: "Expected 2 Prometheus replicas, but only {% raw %}{{ $value }}{% endraw %} are reporting up."
+
+  - name: postgresql_alerts
+    rules:
+      - alert: PostgreSQLDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL exporter is down on {% raw %}{{ $labels.instance }}{% endraw %}"
+          description: "The postgres_exporter target on {% raw %}{{ $labels.instance }}{% endraw %} has been unreachable for more than 1 minute."
+
+      - alert: PostgreSQLReplicationLag
+        expr: |
+          (
+            pg_stat_replication_pg_wal_lsn_diff
+            / 1024 / 1024
+          ) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL replication lag is high on {% raw %}{{ $labels.instance }}{% endraw %}"
+          description: "Replication lag is above 100 MB (current: {% raw %}{{ $value | printf \"%.1f\" }}{% endraw %} MB)."
+
+      - alert: PostgreSQLTooManyConnections
+        expr: |
+          (
+            sum by(instance) (pg_stat_activity_count{state!="idle"})
+            / on(instance) group_left() pg_settings_max_connections
+          ) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL has too many active connections on {% raw %}{{ $labels.instance }}{% endraw %}"
+          description: "More than 80% of max_connections are active (current: {% raw %}{{ $value | printf \"%.1f\" }}{% endraw %})."
+
+      - alert: PostgreSQLWALArchivingFailed
+        expr: rate(pg_stat_archiver_failed_count[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL WAL archiving is failing on {% raw %}{{ $labels.instance }}{% endraw %}"
+          description: "WAL archiver has reported failures in the last 5 minutes."
+
+  - name: patroni_alerts
+    rules:
+      - alert: PatroniDown
+        expr: up{job="patroni"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Patroni is down on {% raw %}{{ $labels.instance }}{% endraw %}"
+          description: "The Patroni REST API on {% raw %}{{ $labels.instance }}{% endraw %} has been unreachable for more than 2 minutes."
+
+      - alert: PatroniNoLeader
+        expr: sum(patroni_master) != 1
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Patroni cluster has no unique leader"
+          description: "Expected exactly 1 Patroni leader, got {% raw %}{{ $value }}{% endraw %}. Zero means no leader (failover stuck), more than one means split brain."
+
+      - alert: PatroniPostgresNotRunning
+        expr: patroni_postgres_running == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is not running on Patroni node {% raw %}{{ $labels.name }}{% endraw %}"
+          description: "Patroni reports PostgreSQL as down on node {% raw %}{{ $labels.name }}{% endraw %} for more than 2 minutes."
+
+  - name: etcd_alerts
+    rules:
+      - alert: EtcdDown
+        expr: up{job=~"etcd-pg|etcd-k8s"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "etcd is down on {% raw %}{{ $labels.instance }}{% endraw %}"
+          description: "The etcd metrics endpoint of {% raw %}{{ $labels.instance }}{% endraw %} (job {% raw %}{{ $labels.job }}{% endraw %}) has been unreachable for more than 2 minutes."
+
+      - alert: EtcdNoLeader
+        expr: etcd_server_has_leader{job=~"etcd-pg|etcd-k8s"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "etcd has no leader on {% raw %}{{ $labels.instance }}{% endraw %}"
+          description: "etcd member {% raw %}{{ $labels.instance }}{% endraw %} (job {% raw %}{{ $labels.job }}{% endraw %}) reports no leader. The cluster cannot commit writes until a leader is elected."
+
+  - name: haproxy_alerts
+    rules:
+      - alert: HAProxyDown
+        expr: up{job="haproxy"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HAProxy is down on {% raw %}{{ $labels.instance }}{% endraw %}"
+          description: "The HAProxy metrics endpoint on {% raw %}{{ $labels.instance }}{% endraw %} has been unreachable for more than 2 minutes. All monitoring UIs, the k8s API endpoint and the PostgreSQL write/read endpoints are affected."
+
+      # Backend-level semantics: fires only when a backend has no available
+      # servers. Server-level DOWN states are by design for leader-only
+      # backends (postgre_write checks /leader, replicas stay DOWN).
+      - alert: HAProxyBackendDown
+        expr: haproxy_backend_status{state="DOWN"} == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HAProxy backend is down: {% raw %}{{ $labels.proxy }}{% endraw %}"
+          description: "Backend {% raw %}{{ $labels.proxy }}{% endraw %} has had no available servers for more than 5 minutes. The service routed through this backend is unreachable."
+
+  - name: backup_alerts
+    rules:
+      # Metrics come from the pushgateway (job pushgateway): the
+      # pgbackrest-push wrapper on the PostgreSQL hosts and the forgejo
+      # backup CronJob script push after every run.
+
+      - alert: PgBackRestBackupFailed
+        expr: pgbackrest_backup_last_run_success == 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "pgBackRest backup failed on {% raw %}{{ $labels.instance }}{% endraw %} ({% raw %}{{ $labels.type }}{% endraw %})"
+          description: "The last {% raw %}{{ $labels.type }}{% endraw %} backup on {% raw %}{{ $labels.instance }}{% endraw %} exited non-zero. Check the pgbackrest journal (systemctl status pgbackrest@{% raw %}{{ $labels.type }}{% endraw %})."
+
+      - alert: PgBackRestBackupStale
+        expr: >-
+          (time() - pgbackrest_backup_last_success_timestamp_seconds{type="diff"} > 93600)
+          or (time() - pgbackrest_backup_last_success_timestamp_seconds{type="full"} > 691200)
+          or absent(pgbackrest_backup_last_success_timestamp_seconds{type="diff"})
+          or absent(pgbackrest_backup_last_success_timestamp_seconds{type="full"})
+        labels:
+          severity: critical
+        annotations:
+          summary: "pgBackRest backups are stale"
+          description: "No successful diff backup in 26h or full backup in 8d on the PostgreSQL cluster. Either the timers are not firing, the leader ExecCondition is failing, or every run is failing. Also fires when no successful backup has ever been recorded (fresh deployment or dead timer)."
+
+      - alert: PgBackRestCheckFailed
+        expr: pgbackrest_check_last_run_success == 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "pgBackRest repository check failed"
+          description: "The pgBackRest repository check exited non-zero. The backup repository may not be restorable; investigate before trusting current backups."
+
+      - alert: ForgejoBackupFailed
+        expr: forgejo_backup_last_run_success == 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Forgejo backup failed"
+          description: "The forgejo-backup CronJob exited non-zero. Check the failed job pods (kubectl -n forgejo get jobs) and the backup container logs."
+
+      - alert: ForgejoBackupStale
+        expr: >-
+          (time() - forgejo_backup_last_success_timestamp_seconds > 100800)
+          or absent(forgejo_backup_last_success_timestamp_seconds)
+        labels:
+          severity: critical
+        annotations:
+          summary: "Forgejo backups are stale"
+          description: "No successful Forgejo dump in 28h. Either the CronJob is not firing, the schedule changed, or every run is failing. Also fires when no successful backup has ever been recorded (fresh deployment or dead timer)."
+
+      - alert: PushgatewayDown
+        expr: up{job="pushgateway"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pushgateway is down on {% raw %}{{ $labels.instance }}{% endraw %}"
+          description: "The Pushgateway on {% raw %}{{ $labels.instance }}{% endraw %} has been unreachable for more than 5 minutes. Backup job metrics are frozen until it recovers."
+
+  - name: kubernetes_alerts
+    rules:
+      # Metrics come from the kubernetes-apiservers, kubernetes-kubelets,
+      # kubernetes-cadvisor, kube-state-metrics and longhorn jobs.
+
+      - alert: K8sApiDown
+        expr: up{job="kubernetes-apiservers"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kubernetes API server is down: {% raw %}{{ $labels.instance }}{% endraw %}"
+          description: "The API server on {% raw %}{{ $labels.instance }}{% endraw %} has been unreachable for more than 5 minutes."
+
+      - alert: KSMDown
+        expr: up{job="kube-state-metrics"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "kube-state-metrics is unreachable"
+          description: "The kube-state-metrics scrape target (via the API server service proxy) has been down for more than 5 minutes. Cluster state alerts are blind until it recovers."
+
+      - alert: KubeNodeNotReady
+        expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kubernetes node is not ready: {% raw %}{{ $labels.node }}{% endraw %}"
+          description: "Node {% raw %}{{ $labels.node }}{% endraw %} has been NotReady for more than 10 minutes. Workloads are being evicted or already rescheduled."
+
+      - alert: KubePodCrashLooping
+        expr: kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"} == 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pod is crash-looping: {% raw %}{{ $labels.namespace }}/{% raw %}{{ $labels.pod }}{% endraw %}"
+          description: "Container {% raw %}{{ $labels.container }}{% endraw %} in pod {% raw %}{{ $labels.namespace }}/{{ $labels.pod }}{% endraw %} has been in CrashLoopBackOff for more than 15 minutes."
+
+      - alert: KubeDeploymentReplicasMismatch
+        expr: kube_deployment_status_replicas_available != kube_deployment_status_replicas_desired
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Deployment replicas mismatch: {% raw %}{{ $labels.namespace }}/{{ $labels.deployment }}{% endraw %}"
+          description: "Deployment {% raw %}{{ $labels.namespace }}/{{ $labels.deployment }}{% endraw %} has fewer available replicas than desired for more than 15 minutes."
+
+      - alert: KubePVCFillingUp
+        expr: kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes < 0.15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PVC is filling up: {% raw %}{{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }}{% endraw %}"
+          description: "PersistentVolumeClaim {% raw %}{{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }}{% endraw %} has less than 15% free space."
+
+      - alert: KubePVCCritical
+        expr: kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes < 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PVC is almost full: {% raw %}{{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }}{% endraw %}"
+          description: "PersistentVolumeClaim {% raw %}{{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }}{% endraw %} has less than 5% free space. Writes will start failing."
+
+      # Volume metrics are cluster-wide and identical from every Longhorn
+      # manager: max by (...) collapses the per-worker duplicates.
+      - alert: LonghornVolumeFaulted
+        expr: max by (volume, namespace) (longhorn_volume_robustness{robustness="faulted"}) == 1
+        labels:
+          severity: critical
+        annotations:
+          summary: "Longhorn volume is faulted: {% raw %}{{ $labels.volume }}{% endraw %}"
+          description: "Longhorn volume {% raw %}{{ $labels.volume }}{% endraw %} (namespace {% raw %}{{ $labels.namespace }}{% endraw %}) is faulted: replicas are unavailable or the volume cannot be reattached."
+
+      - alert: LonghornVolumeDegraded
+        expr: max by (volume, namespace) (longhorn_volume_robustness{robustness="degraded"}) == 1
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Longhorn volume is degraded: {% raw %}{{ $labels.volume }}{% endraw %}"
+          description: "Longhorn volume {% raw %}{{ $labels.volume }}{% endraw %} (namespace {% raw %}{{ $labels.namespace }}{% endraw %}) has been running with degraded redundancy for more than 30 minutes."
+
+      - alert: LonghornMetricsDown
+        expr: up{job="longhorn"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Longhorn metrics are unreachable"
+          description: "The Longhorn manager metrics (via the API server service proxy) have been unreachable for more than 5 minutes. Longhorn volume alerts are blind until they recover."

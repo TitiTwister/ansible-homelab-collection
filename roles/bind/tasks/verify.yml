@@ -1,0 +1,37 @@
+---
+# Verify BIND configuration
+
+- name: Check named configuration syntax
+  ansible.builtin.command: named-checkconf {{ bind_config_dir }}/named.conf
+  register: bind_named_checkconf
+  changed_when: false
+
+- name: Display named-checkconf result
+  ansible.builtin.debug:
+    msg: "{{ bind_named_checkconf.stdout }}{{ bind_named_checkconf.stderr }}"
+
+- name: Check forward zone file
+  ansible.builtin.command: >
+    named-checkzone {{ bind_zone_name }} {{ bind_zones_dir }}/db.{{ bind_zone_name }}
+  register: bind_named_checkzone_forward
+  changed_when: false
+  when: inventory_hostname == bind_primary_ns
+
+- name: Display forward zone check result
+  ansible.builtin.debug:
+    msg: "{{ bind_named_checkzone_forward.stdout }}{{ bind_named_checkzone_forward.stderr }}"
+  when: inventory_hostname == bind_primary_ns
+
+- name: Check reverse zone files
+  ansible.builtin.command: >
+    named-checkzone {{ item.zone }} {{ bind_zones_dir }}/db.{{ item.zone }}
+  loop: "{{ bind_reverse_zones }}"
+  register: bind_named_checkzone_reverse
+  changed_when: false
+  when: inventory_hostname == bind_primary_ns
+
+- name: Display reverse zone check results
+  ansible.builtin.debug:
+    msg: "{{ item.stdout }}{{ item.stderr }}"
+  loop: "{{ bind_named_checkzone_reverse.results }}"
+  when: inventory_hostname == bind_primary_ns

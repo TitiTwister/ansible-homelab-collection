@@ -1,0 +1,16 @@
+---
+# Cilium Helm values, rendered by the k8s role from inventory variables.
+ipam:
+  mode: kubernetes
+# Auto-discover the API server endpoints from the in-cluster configuration.
+k8sServiceHost: null
+k8sServicePort: null
+hubble:
+  enabled: true
+  relay:
+    enabled: true
+  ui:
+    enabled: {{ k8s_cilium_hubble_ui_enabled | bool }}
+    service:
+      type: {{ k8s_cilium_hubble_ui_service_type | to_json }}
+      nodePort: {{ k8s_cilium_hubble_ui_nodeport }}

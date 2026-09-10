@@ -1,0 +1,46 @@
+---
+# Verify the repository: seed a first backup and run an integrity check
+
+- name: Read pgBackRest backup info
+  ansible.builtin.command: >-
+    pgbackrest --stanza={{ postgresql_backup_stanza }} info --output=json
+  register: postgresql_backup_info
+  changed_when: false
+  failed_when: postgresql_backup_info.rc not in [0, 1]
+  become: true
+  become_user: "{{ postgresql_backup_user }}"
+  run_once: true
+  delegate_to: "{{ postgresql_backup_leader_node }}"
+  when: not ansible_check_mode
+
+- name: Seed first full backup of the stanza
+  ansible.builtin.command: >-
+    pgbackrest --stanza={{ postgresql_backup_stanza }} --type=full backup
+  register: postgresql_backup_seed
+  changed_when: true
+  become: true
+  become_user: "{{ postgresql_backup_user }}"
+  run_once: true
+  delegate_to: "{{ postgresql_backup_leader_node }}"
+  retries: 3
+  delay: 30
+  until: postgresql_backup_seed.rc == 0
+  when:
+    - not ansible_check_mode
+    - postgresql_backup_seed_first_backup | bool
+    - not (((postgresql_backup_info.stdout | default('')) or '[]') | from_json
+           | selectattr('name', 'equalto', postgresql_backup_stanza)
+           | selectattr('backup', 'defined')
+           | map(attribute='backup') | list | flatten | length > 0)
+
+- name: Run pgBackRest repository check
+  ansible.builtin.command: >-
+    pgbackrest --stanza={{ postgresql_backup_stanza }} check
+  register: postgresql_backup_check
+  changed_when: false
+  failed_when: postgresql_backup_check.rc != 0
+  become: true
+  become_user: "{{ postgresql_backup_user }}"
+  run_once: true
+  delegate_to: "{{ postgresql_backup_leader_node }}"
+  when: not ansible_check_mode

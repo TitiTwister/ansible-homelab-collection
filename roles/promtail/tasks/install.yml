@@ -1,0 +1,83 @@
+---
+# Install promtail on Rocky Linux
+
+- name: Add promtail group
+  ansible.builtin.group:
+    name: "{{ promtail_group }}"
+    system: true
+    state: present
+
+- name: Add promtail user
+  ansible.builtin.user:
+    name: "{{ promtail_user }}"
+    group: "{{ promtail_group }}"
+    system: true
+    shell: /bin/false
+    home: "{{ promtail_config_dir }}"
+    create_home: false
+    # journald access: members of systemd-journal can read all journal files
+    groups: systemd-journal
+    append: true
+
+- name: Create promtail configuration directory
+  ansible.builtin.file:
+    path: "{{ promtail_config_dir }}"
+    state: directory
+    owner: "{{ promtail_user }}"
+    group: "{{ promtail_group }}"
+    mode: '0755'
+
+- name: Ensure promtail data directory exists
+  ansible.builtin.file:
+    path: "{{ promtail_data_dir }}"
+    state: directory
+    owner: "{{ promtail_user }}"
+    group: "{{ promtail_group }}"
+    mode: '0755'
+
+- name: Install unzip for the promtail release archive
+  ansible.builtin.dnf:
+    name: unzip
+    state: present
+
+- name: Download promtail
+  ansible.builtin.get_url:
+    url: "https://github.com/grafana/loki/releases/download/v{{ promtail_version }}/promtail-linux-amd64.zip"
+    dest: "/tmp/promtail-{{ promtail_version }}-linux-amd64.zip"
+    mode: '0644'
+
+- name: Create promtail extraction directory
+  ansible.builtin.file:
+    path: "/tmp/promtail-{{ promtail_version }}-linux-amd64"
+    state: directory
+    mode: '0755'
+
+- name: Extract promtail
+  ansible.builtin.unarchive:
+    src: "/tmp/promtail-{{ promtail_version }}-linux-amd64.zip"
+    dest: "/tmp/promtail-{{ promtail_version }}-linux-amd64"
+    remote_src: true
+    creates: "/tmp/promtail-{{ promtail_version }}-linux-amd64/promtail-linux-amd64"
+
+- name: Install promtail binary
+  ansible.builtin.copy:
+    src: "/tmp/promtail-{{ promtail_version }}-linux-amd64/promtail-linux-amd64"
+    dest: /usr/local/bin/promtail
+    owner: root
+    group: root
+    mode: '0755'
+    remote_src: true
+  notify: Restart promtail
+
+- name: Create promtail systemd service
+  ansible.builtin.template:
+    src: promtail.service.j2
+    dest: /etc/systemd/system/promtail.service
+    mode: '0644'
+  notify: Restart promtail
+
+- name: Enable promtail service
+  ansible.builtin.systemd:
+    name: promtail
+    enabled: true
+    daemon_reload: true

@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: certificate
+  namespace: tititwister
+  author: TitiTwister
+  description: TLS certificates from a step-ca ACME server via certbot DNS-01
+  license: Beerware
+  min_ansible_version: "2.18"
+  platforms:
+    - name: EL
+      versions: ["9"]
+  galaxy_tags: [pki, certificates, security]
+
+dependencies: []

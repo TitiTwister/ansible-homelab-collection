@@ -1,0 +1,81 @@
+---
+# Install etcd from the official upstream binary release
+
+- name: Ensure etcd group exists
+  ansible.builtin.group:
+    name: "{{ postgresql_etcd_group }}"
+    system: true
+    state: present
+  become: true
+
+- name: Ensure etcd user exists
+  ansible.builtin.user:
+    name: "{{ postgresql_etcd_user }}"
+    group: "{{ postgresql_etcd_group }}"
+    system: true
+    shell: /bin/false
+    home: "{{ postgresql_etcd_data_dir }}"
+    create_home: false
+    state: present
+  become: true
+
+- name: Ensure etcd data directory exists
+  ansible.builtin.file:
+    path: "{{ postgresql_etcd_data_dir }}"
+    state: directory
+    owner: "{{ postgresql_etcd_user }}"
+    group: "{{ postgresql_etcd_group }}"
+    mode: "0700"
+  become: true
+
+- name: Ensure etcd configuration directory exists
+  ansible.builtin.file:
+    path: "{{ postgresql_etcd_config_file | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Check installed etcd version
+  ansible.builtin.command: "{{ postgresql_etcd_install_dir }}/etcd --version"
+  changed_when: false
+  failed_when: false
+  register: postgresql_etcd_installed_version
+  become: true
+
+- name: Download etcd release archive
+  ansible.builtin.get_url:
+    url: "{{ postgresql_etcd_download_url }}"
+    dest: "/tmp/etcd-v{{ postgresql_etcd_version }}-linux-amd64.tar.gz"
+    mode: "0644"
+  become: true
+  when: >
+    postgresql_etcd_installed_version.rc != 0
+    or postgresql_etcd_version not in postgresql_etcd_installed_version.stdout
+
+- name: Extract etcd archive
+  ansible.builtin.unarchive:
+    src: "/tmp/etcd-v{{ postgresql_etcd_version }}-linux-amd64.tar.gz"
+    dest: /tmp/
+    remote_src: true
+    creates: "/tmp/etcd-v{{ postgresql_etcd_version }}-linux-amd64/etcd"
+  become: true
+  when: >
+    postgresql_etcd_installed_version.rc != 0
+    or postgresql_etcd_version not in postgresql_etcd_installed_version.stdout
+
+- name: Install etcd and etcdctl binaries
+  ansible.builtin.copy:
+    src: "/tmp/etcd-v{{ postgresql_etcd_version }}-linux-amd64/{{ item }}"
+    dest: "{{ postgresql_etcd_install_dir }}/{{ item }}"
+    mode: "0755"
+    remote_src: true
+  loop:
+    - etcd
+    - etcdctl
+  become: true
+  when: >
+    postgresql_etcd_installed_version.rc != 0
+    or postgresql_etcd_version not in postgresql_etcd_installed_version.stdout
+  notify: Restart etcd

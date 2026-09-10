@@ -1,0 +1,18 @@
+---
+# Main tasks for prometheus role
+
+- name: Install Prometheus
+  ansible.builtin.include_tasks: install_prometheus.yml
+
+- name: Install Alertmanager
+  ansible.builtin.include_tasks: install_alertmanager.yml
+
+- name: Configure Prometheus
+  ansible.builtin.include_tasks: configure.yml
+
+- name: Configure Kubernetes scrape credentials
+  ansible.builtin.include_tasks: configure_k8s.yml
+  when: prometheus_k8s_credentials_src is defined and prometheus_k8s_credentials_src | length > 0
+
+- name: Configure alerting (Alertmanager + rules)
+  ansible.builtin.include_tasks: configure_alerting.yml

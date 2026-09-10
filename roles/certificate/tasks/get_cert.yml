@@ -1,0 +1,130 @@
+---
+# Request a specific certificate from the CA server using certbot DNS-01
+
+- name: "Ensure certbot credentials directory exists"
+  ansible.builtin.file:
+    path: "/etc/letsencrypt"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: "Deploy certbot RFC2136 credentials"
+  ansible.builtin.template:
+    src: rfc2136.ini.j2
+    dest: "{{ certificate_certbot_credentials_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  no_log: true
+
+- name: "Generate domains list for cert {{ cert.name }}"
+  ansible.builtin.set_fact:
+    certificate_cert_domains: >-
+      {{
+        [cert.common_name]
+        + (cert.san | default([]))
+      }}
+
+- name: "Check if certificate file exists for {{ cert.name }}"
+  ansible.builtin.stat:
+    path: "{{ certificate_certs_path }}/{{ cert.name }}.crt"
+  register: certificate_cert_file_stat
+  become: true
+
+- name: "Check if existing certificate is still valid for {{ cert.name }}"
+  ansible.builtin.command: >
+    openssl x509
+    -in {{ certificate_certs_path }}/{{ cert.name }}.crt
+    -noout
+    -checkend {{ certificate_renewal_threshold }}
+  register: certificate_cert_valid_check
+  changed_when: false
+  become: true
+  when: certificate_cert_file_stat.stat.exists
+
+- name: "Set certificate validity check to invalid when no cert file exists"
+  ansible.builtin.set_fact:
+    certificate_cert_valid_check:
+      rc: 1
+  when: not certificate_cert_file_stat.stat.exists
+
+- name: "Clean up stale certbot state for {{ cert.name }}"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/etc/letsencrypt/live/{{ cert.name }}"
+    - "/etc/letsencrypt/archive/{{ cert.name }}"
+    - "/etc/letsencrypt/renewal/{{ cert.name }}.conf"
+  become: true
+  when: certificate_cert_valid_check.rc != 0
+
+- name: "Request certificate from CA for {{ cert.name }}"
+  ansible.builtin.command: >
+    certbot certonly
+    --non-interactive
+    --agree-tos
+    --email {{ certificate_certbot_email }}
+    --server {{ certificate_certbot_server }}
+    --{{ certificate_certbot_dns_plugin }}
+    --{{ certificate_certbot_dns_plugin }}-credentials {{ certificate_certbot_credentials_path }}
+    --{{ certificate_certbot_dns_plugin }}-propagation-seconds {{ certificate_certbot_propagation_seconds }}
+    --cert-name {{ cert.name }}
+    {% for domain in certificate_cert_domains %}-d {{ domain }} {% endfor %}
+  args:
+    creates: "/etc/letsencrypt/live/{{ cert.name }}/cert.pem"
+  become: true
+#  no_log: true
+  when: certificate_cert_valid_check.rc != 0
+
+- name: "Copy certificate for {{ cert.name }}"
+  ansible.builtin.copy:
+    src: "/etc/letsencrypt/live/{{ cert.name }}/cert.pem"
+    dest: "{{ certificate_certs_path }}/{{ cert.name }}.crt"
+    owner: root
+    group: root
+    mode: "0644"
+    remote_src: true
+  become: true
+  when: certificate_cert_valid_check.rc != 0
+
+- name: "Copy private key for {{ cert.name }}"
+  ansible.builtin.copy:
+    src: "/etc/letsencrypt/live/{{ cert.name }}/privkey.pem"
+    dest: "{{ certificate_private_path }}/{{ cert.name }}.key"
+    owner: root
+    group: root
+    mode: "0600"
+    remote_src: true
+  become: true
+  when: certificate_cert_valid_check.rc != 0
+
+- name: "Read leaf certificate for {{ cert.name }}"
+  ansible.builtin.slurp:
+    src: "{{ certificate_certs_path }}/{{ cert.name }}.crt"
+  register: certificate_leaf_cert_pem
+  become: true
+
+- name: "Read full chain from certbot for {{ cert.name }}"
+  ansible.builtin.slurp:
+    src: "/etc/letsencrypt/live/{{ cert.name }}/fullchain.pem"
+  register: certificate_fullchain_cert_pem
+  become: true
+
+- name: "Read root CA certificate for {{ cert.name }}"
+  ansible.builtin.slurp:
+    src: "{{ certificate_certs_path }}/{{ certificate_root_ca_file }}"
+  register: certificate_root_cert_pem
+  become: true
+
+- name: "Save certificate chain for {{ cert.name }}"
+  ansible.builtin.copy:
+    content: "{{ certificate_fullchain_cert_pem.content | b64decode }}\n{{ certificate_root_cert_pem.content | b64decode }}"
+    dest: "{{ certificate_certs_path }}/{{ cert.name }}-chain.crt"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true

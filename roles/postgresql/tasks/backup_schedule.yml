@@ -1,0 +1,74 @@
+---
+# Deploy pgBackRest systemd units and timers
+
+- name: Deploy pgBackRest metrics wrapper
+  ansible.builtin.template:
+    src: pgbackrest-push.j2
+    dest: /usr/local/bin/pgbackrest-push
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy pgBackRest backup service template
+  ansible.builtin.template:
+    src: pgbackrest@.service.j2
+    dest: "{{ __postgresql_backup_unit_dir }}/pgbackrest@.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart pgBackRest timers
+
+- name: Deploy pgBackRest full backup timer
+  ansible.builtin.template:
+    src: pgbackrest.timer.j2
+    dest: "{{ __postgresql_backup_unit_dir }}/pgbackrest@full.timer"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    __postgresql_backup_timer_description: "pgBackRest full backup for stanza {{ postgresql_backup_stanza }}"
+    __postgresql_backup_timer_calendar: "{{ postgresql_backup_full_calendar }}"
+  notify: Restart pgBackRest timers
+
+- name: Deploy pgBackRest differential backup timer
+  ansible.builtin.template:
+    src: pgbackrest.timer.j2
+    dest: "{{ __postgresql_backup_unit_dir }}/pgbackrest@diff.timer"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    __postgresql_backup_timer_description: "pgBackRest differential backup for stanza {{ postgresql_backup_stanza }}"
+    __postgresql_backup_timer_calendar: "{{ postgresql_backup_diff_calendar }}"
+  notify: Restart pgBackRest timers
+
+- name: Deploy pgBackRest repository check service
+  ansible.builtin.template:
+    src: pgbackrest-check.service.j2
+    dest: "{{ __postgresql_backup_unit_dir }}/pgbackrest-check.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart pgBackRest timers
+
+- name: Deploy pgBackRest repository check timer
+  ansible.builtin.template:
+    src: pgbackrest.timer.j2
+    dest: "{{ __postgresql_backup_unit_dir }}/pgbackrest-check.timer"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    __postgresql_backup_timer_description: "pgBackRest repository check for stanza {{ postgresql_backup_stanza }}"
+    __postgresql_backup_timer_calendar: "{{ postgresql_backup_check_calendar }}"
+  notify: Restart pgBackRest timers
+
+- name: Enable and start pgBackRest timers
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop: "{{ __postgresql_backup_timers }}"
+  loop_control:
+    label: "{{ item }}"

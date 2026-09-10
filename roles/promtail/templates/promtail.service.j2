@@ -1,0 +1,17 @@
+[Unit]
+Description=Promtail Log Shipper
+Documentation=https://grafana.com/docs/loki/latest/send-data/promtail/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User={{ promtail_user }}
+Group={{ promtail_group }}
+ExecStart=/usr/local/bin/promtail -config.file={{ promtail_config_file }}
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

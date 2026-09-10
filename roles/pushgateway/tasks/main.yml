@@ -1,0 +1,5 @@
+---
+# Main tasks for pushgateway role
+
+- name: Install Pushgateway
+  ansible.builtin.import_tasks: install.yml

@@ -1,0 +1,42 @@
+---
+# Install Grafana on Rocky Linux
+
+- name: Add Grafana GPG key
+  ansible.builtin.rpm_key:
+    key: https://rpm.grafana.com/gpg.key
+    state: present
+
+- name: Add Grafana repository
+  ansible.builtin.yum_repository:
+    name: grafana
+    description: Grafana OSS
+    baseurl: https://rpm.grafana.com
+    repo_gpgcheck: true
+    enabled: true
+    gpgcheck: true
+    gpgkey: https://rpm.grafana.com/gpg.key
+    sslverify: true
+    sslcacert: /etc/pki/tls/certs/ca-bundle.crt
+
+- name: Install Grafana
+  ansible.builtin.dnf:
+    name: grafana
+    state: present
+
+- name: Ensure provisioning directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: grafana
+    group: grafana
+    mode: "0755"
+  loop:
+    - "{{ grafana_provisioning_dir }}/datasources"
+    - "{{ grafana_provisioning_dir }}/dashboards"
+    - "{{ grafana_data_dir }}/dashboards"
+
+- name: Enable Grafana service
+  ansible.builtin.systemd:
+    name: grafana-server
+    enabled: true
+    daemon_reload: true

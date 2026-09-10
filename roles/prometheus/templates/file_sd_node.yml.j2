@@ -1,0 +1,7 @@
+---
+# Prometheus file_sd targets for node exporter
+# Entries are hostname@ip:9100; relabel config splits hostname and ip.
+- targets:
+{% for entry in prometheus_targets_node.node | map(attribute='targets') | flatten | default([]) %}
+    - "{{ entry }}:9100"
+{% endfor %}

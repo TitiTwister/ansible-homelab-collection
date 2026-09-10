@@ -1,0 +1,153 @@
+---
+
+- name: Check if Root CA certificate already exists
+  ansible.builtin.stat:
+    path: "{{ step_ca_root_cert_path }}"
+  register: step_ca_root_ca_cert_stat
+  become: true
+
+- name: Create Root CA password file on target
+  ansible.builtin.copy:
+    content: "{{ step_ca_root_password }}"
+    dest: "{{ step_ca_install_path }}/.root_ca_password"
+    owner: "{{ step_ca_user }}"
+    group: "{{ step_ca_group }}"
+    mode: "0600"
+  become: true
+  no_log: true
+
+- name: Create Intermediate CA password file on target
+  ansible.builtin.copy:
+    content: "{{ step_ca_intermediate_password }}"
+    dest: "{{ step_ca_install_path }}/.intermediate_ca_password"
+    owner: "{{ step_ca_user }}"
+    group: "{{ step_ca_group }}"
+    mode: "0600"
+  become: true
+  no_log: true
+
+- name: Check if Intermediate CA certificate already exists
+  ansible.builtin.stat:
+    path: "{{ step_ca_intermediate_cert_path }}"
+  register: step_ca_intermediate_ca_cert_stat
+  become: true
+
+- name: Create Root CA
+  ansible.builtin.command: >
+    /usr/local/bin/step certificate create
+    --profile root-ca
+    --kty {{ step_ca_key_type }}
+    --curve {{ step_ca_key_curve }}
+    --not-after {{ step_ca_root_validity }}
+    --password-file "{{ step_ca_install_path }}/.root_ca_password"
+    "{{ step_ca_root_ca_name }}"
+    "{{ step_ca_root_cert_path }}"
+    "{{ step_ca_root_key_path }}"
+  when: not step_ca_root_ca_cert_stat.stat.exists
+  args:
+    creates: "{{ step_ca_root_cert_path }}"
+  become: true
+
+- name: Set Root CA certificate permissions
+  ansible.builtin.file:
+    path: "{{ step_ca_root_cert_path }}"
+    owner: "{{ step_ca_user }}"
+    group: "{{ step_ca_group }}"
+    mode: "{{ step_ca_cert_permissions }}"
+  become: true
+
+- name: Set Root CA key permissions
+  ansible.builtin.file:
+    path: "{{ step_ca_root_key_path }}"
+    owner: "{{ step_ca_user }}"
+    group: "{{ step_ca_group }}"
+    mode: "{{ step_ca_key_permissions }}"
+  become: true
+
+- name: Create Intermediate CA signed by Root CA
+  ansible.builtin.command: >
+    /usr/local/bin/step certificate create
+    --profile intermediate-ca
+    --kty {{ step_ca_key_type }}
+    --curve {{ step_ca_key_curve }}
+    --not-after {{ step_ca_intermediate_validity }}
+    --ca "{{ step_ca_root_cert_path }}"
+    --ca-key "{{ step_ca_root_key_path }}"
+    --ca-password-file "{{ step_ca_install_path }}/.root_ca_password"
+    --password-file "{{ step_ca_install_path }}/.intermediate_ca_password"
+    "{{ step_ca_intermediate_ca_name }}"
+    "{{ step_ca_intermediate_cert_path }}"
+    "{{ step_ca_intermediate_key_path }}"
+  when: not step_ca_intermediate_ca_cert_stat.stat.exists
+  args:
+    creates: "{{ step_ca_intermediate_cert_path }}"
+  become: true
+
+- name: Set Intermediate CA certificate permissions
+  ansible.builtin.file:
+    path: "{{ step_ca_intermediate_cert_path }}"
+    owner: "{{ step_ca_user }}"
+    group: "{{ step_ca_group }}"
+    mode: "{{ step_ca_cert_permissions }}"
+  become: true
+
+- name: Set Intermediate CA key permissions
+  ansible.builtin.file:
+    path: "{{ step_ca_intermediate_key_path }}"
+    owner: "{{ step_ca_user }}"
+    group: "{{ step_ca_group }}"
+    mode: "{{ step_ca_key_permissions }}"
+  become: true
+
+- name: Create CA chain file (Intermediate + Root)
+  ansible.builtin.shell:
+    cmd: "cat {{ step_ca_intermediate_cert_path }} {{ step_ca_root_cert_path }} > {{ step_ca_install_path }}/ca-chain.crt"
+    creates: "{{ step_ca_install_path }}/ca-chain.crt"
+  become: true
+
+- name: Set CA chain file permissions
+  ansible.builtin.file:
+    path: "{{ step_ca_install_path }}/ca-chain.crt"
+    owner: "{{ step_ca_user }}"
+    group: "{{ step_ca_group }}"
+    mode: "0655"
+  become: true
+
+- name: Ensure controller CA files directory exists
+  ansible.builtin.file:
+    path: "{{ step_ca_controller_files_dir }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: false
+
+- name: Fetch Root CA cert to controller
+  ansible.builtin.fetch:
+    src: "{{ step_ca_root_cert_path }}"
+    dest: "{{ step_ca_controller_files_dir }}/root_ca.crt"
+    flat: true
+
+- name: Fetch Intermediate CA cert to controller
+  ansible.builtin.fetch:
+    src: "{{ step_ca_intermediate_cert_path }}"
+    dest: "{{ step_ca_controller_files_dir }}/intermediate_ca.crt"
+    flat: true
+
+- name: Fetch Intermediate CA key to controller
+  ansible.builtin.fetch:
+    src: "{{ step_ca_intermediate_key_path }}"
+    dest: "{{ step_ca_controller_files_dir }}/intermediate_ca.key"
+    flat: true
+  no_log: true
+
+- name: Display CA information
+  ansible.builtin.debug:
+    msg:
+      - "Root CA: {{ step_ca_root_ca_name }}"
+      - "  Certificate: {{ step_ca_root_cert_path }}"
+      - "  Key: {{ step_ca_root_key_path }}"
+      - "Intermediate CA: {{ step_ca_intermediate_ca_name }}"
+      - "  Certificate: {{ step_ca_intermediate_cert_path }}"
+      - "  Key: {{ step_ca_intermediate_key_path }}"
+      - "CA Chain: {{ step_ca_install_path }}/ca-chain.crt"
+  become: true

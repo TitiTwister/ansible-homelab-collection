@@ -1,0 +1,93 @@
+---
+# Deploy the Prometheus monitoring RBAC from the controller VM: a
+# ServiceAccount with read-only metrics permissions plus a long-lived
+# token Secret. The token and the cluster CA are fetched to the
+# k8s_local_kubeconfig_dir/monitoring directory on the control node; the
+# prometheus role deploys them to the Prometheus hosts
+# (bearer_token_file + ca_file).
+
+- name: Render monitoring RBAC manifest
+  ansible.builtin.template:
+    src: monitoring-rbac.yaml.j2
+    dest: /tmp/monitoring-rbac.yaml
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Apply monitoring RBAC manifest
+  ansible.builtin.command: kubectl apply -f /tmp/monitoring-rbac.yaml
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_monitoring_rbac_apply
+  changed_when: "'created' in k8s_monitoring_rbac_apply.stdout or 'configured' in k8s_monitoring_rbac_apply.stdout"
+  until: k8s_monitoring_rbac_apply.rc == 0
+  retries: 5
+  delay: 10
+
+- name: Wait for the token Secret to be populated
+  ansible.builtin.command: >
+    kubectl --namespace {{ k8s_monitoring_namespace }}
+    get secret {{ k8s_monitoring_serviceaccount }}-token
+    -o jsonpath='{.data.token}'
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_monitoring_token_check
+  # The token controller populates the Secret asynchronously.
+  until: k8s_monitoring_token_check.rc == 0 and k8s_monitoring_token_check.stdout | length > 0
+  retries: 12
+  delay: 5
+  changed_when: false
+
+- name: Extract the monitoring token to a staging file
+  ansible.builtin.shell: >
+    set -o pipefail;
+    kubectl --namespace {{ k8s_monitoring_namespace }}
+    get secret {{ k8s_monitoring_serviceaccount }}-token
+    -o jsonpath='{.data.token}' | base64 -d > /tmp/k8s-monitoring-token
+  register: k8s_monitoring_token_extract
+  changed_when: false
+  failed_when: k8s_monitoring_token_extract.rc != 0
+
+- name: Extract the cluster CA certificate to a staging file
+  ansible.builtin.shell: >
+    set -o pipefail;
+    kubectl --namespace {{ k8s_monitoring_namespace }}
+    get secret {{ k8s_monitoring_serviceaccount }}-token
+    -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/k8s-monitoring-ca.crt
+  register: k8s_monitoring_ca_extract
+  changed_when: false
+  failed_when: k8s_monitoring_ca_extract.rc != 0
+
+- name: Ensure local monitoring credentials directory exists
+  ansible.builtin.file:
+    path: "{{ k8s_local_kubeconfig_dir }}/monitoring"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Fetch the monitoring token to the control node
+  ansible.builtin.fetch:
+    src: /tmp/k8s-monitoring-token
+    dest: "{{ k8s_local_kubeconfig_dir }}/monitoring/token"
+    flat: true
+  changed_when: false
+
+- name: Fetch the cluster CA certificate to the control node
+  ansible.builtin.fetch:
+    src: /tmp/k8s-monitoring-ca.crt
+    dest: "{{ k8s_local_kubeconfig_dir }}/monitoring/ca.crt"
+    flat: true
+  changed_when: false
+
+- name: Remove staging files with cluster credentials
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/k8s-monitoring-token
+    - /tmp/k8s-monitoring-ca.crt
+    - /tmp/monitoring-rbac.yaml
+  loop_control:
+    label: "{{ item }}"

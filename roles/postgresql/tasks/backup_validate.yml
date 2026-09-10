@@ -1,0 +1,39 @@
+---
+# Validate mandatory pgBackRest backup variables
+
+- name: Assert mandatory pgBackRest S3 repository settings
+  ansible.builtin.assert:
+    that:
+      - postgresql_backup_s3_bucket | length > 0
+      - postgresql_backup_s3_bucket != 'CHANGE_ME'
+      - postgresql_backup_s3_endpoint | length > 0
+      - postgresql_backup_s3_endpoint != 'CHANGE_ME'
+      - postgresql_backup_s3_region | length > 0
+      - postgresql_backup_s3_region != 'CHANGE_ME'
+      - postgresql_backup_s3_key | default('') | length > 0
+      - postgresql_backup_s3_key_secret | default('') | length > 0
+      - postgresql_backup_pg1_path | length > 0
+    fail_msg: >-
+      PostgreSQL backups require postgresql_backup_s3_bucket, _s3_endpoint,
+      _s3_region, _s3_key, _s3_key_secret and _pg1_path to be defined. Set the
+      credentials in the inventory vault file (vault_backup.yml).
+
+- name: Assert repository encryption passphrase when encryption is enabled
+  ansible.builtin.assert:
+    that:
+      - postgresql_backup_cipher_pass | default('') | length > 0
+      - postgresql_backup_cipher_pass | default('') is not match('^CHANGE_ME')
+    fail_msg: >-
+      postgresql_backup_cipher_enabled is true but postgresql_backup_cipher_pass
+      is not set. Define it in the inventory vault file (vault_backup.yml).
+  when: postgresql_backup_cipher_enabled | default(false) | bool
+
+- name: Assert WAL archiving settings are consistent with backups
+  ansible.builtin.assert:
+    that:
+      - postgresql_archive_mode == 'on'
+      - postgresql_archive_command | length > 0
+    fail_msg: >-
+      Backups require continuous WAL archiving, but postgresql_archive_mode is
+      '{{ postgresql_archive_mode }}'. Do not override the derived
+      postgresql_archive_* variables while backups are enabled.

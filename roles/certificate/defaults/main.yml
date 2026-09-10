@@ -1,0 +1,35 @@
+---
+# Default variables for certificate role
+
+# CA server connection
+certificate_step_ca_url: "{{ step_ca_server_ca_url | default('ca.example.com') }}:{{ step_ca_server_port | default(443) }}"
+
+# certbot configuration
+certificate_certbot_email: "admin@example.com"
+certificate_certbot_server: "https://{{ certificate_step_ca_url }}/acme/acme/directory"
+certificate_certbot_dns_plugin: "dns-rfc2136"
+certificate_certbot_credentials_path: "/etc/letsencrypt/rfc2136.ini"
+certificate_certbot_propagation_seconds: 10
+
+# DNS server for RFC2136 updates
+certificate_dns_server: "{{ dns_nameservers[0] | default('192.168.1.1') }}"
+
+# Certificate defaults
+certificate_default_duration: "2160h"
+certificate_key_size: 2048
+
+# Root CA download URL
+certificate_root_ca_url: "https://{{ certificate_step_ca_url }}/roots.pem"
+certificate_root_ca_file: "root_ca.crt"
+
+# Installation paths on target hosts
+certificate_certs_path: "/etc/ssl/certs"
+certificate_private_path: "/etc/ssl/private"
+
+# Certificate validity threshold in seconds (default: 10 days)
+# If existing cert expires after this many seconds, skip re-issuance
+certificate_renewal_threshold: 864000
+
+# List of certificates to request
+# Each item: {name, common_name, san: [list of SANs], duration: optional}
+certificate_certs: []

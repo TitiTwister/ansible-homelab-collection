@@ -1,0 +1,41 @@
+---
+# Deploy cluster-level addons from the controller VM.
+# Runs after the control plane is bootstrapped and the controller has a kubeconfig.
+
+- name: Deploy CNI plugin
+  ansible.builtin.include_tasks: cni.yml
+  when: k8s_cni != "none"
+
+- name: Deploy MetalLB
+  ansible.builtin.include_tasks: metallb.yml
+  when: k8s_metallb_enabled | bool
+
+- name: Deploy CSI plugin
+  ansible.builtin.include_tasks: csi.yml
+  when: k8s_csi != "none"
+
+- name: Deploy Forgejo
+  ansible.builtin.include_tasks: app_forgejo.yml
+  when: k8s_forgejo_enabled | bool
+
+- name: Deploy Forgejo backup
+  ansible.builtin.include_tasks: app_forgejo_backup.yml
+  when:
+    - k8s_forgejo_enabled | bool
+    - k8s_forgejo_backup_enabled | bool
+
+- name: Deploy kube-state-metrics
+  ansible.builtin.include_tasks: app_kubestatemetrics.yml
+  when: k8s_kubestatemetrics_enabled | bool
+
+- name: Deploy metrics-server
+  ansible.builtin.include_tasks: app_metricsserver.yml
+  when: k8s_metricsserver_enabled | bool
+
+- name: Deploy Prometheus monitoring RBAC and token
+  ansible.builtin.include_tasks: monitoring_rbac.yml
+  when: k8s_monitoring_rbac_enabled | bool
+
+- name: Deploy Headlamp
+  ansible.builtin.include_tasks: app_headlamp.yml
+  when: k8s_headlamp_enabled | bool

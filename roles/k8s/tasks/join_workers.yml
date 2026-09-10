@@ -1,0 +1,76 @@
+---
+# Join worker nodes to the cluster
+
+- name: Check if worker is already joined
+  ansible.builtin.stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: k8s_worker_joined_stat
+
+- name: Retrieve bootstrap token from bootstrap master
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubeadm token list |
+    awk '/authentication,signing/ && !seen { print $1; seen = 1 }'
+  delegate_to: "{{ k8s_bootstrap_host }}"
+  environment:
+    KUBECONFIG: /root/kubeadm-local-admin.conf
+  register: k8s_token_retrieve
+  changed_when: false
+  failed_when: k8s_token_retrieve.rc != 0
+  when: not k8s_worker_joined_stat.stat.exists
+
+- name: Create bootstrap token when none exists
+  ansible.builtin.command: kubeadm token create --ttl 24h --description "ansible-k8s-bootstrap"
+  delegate_to: "{{ k8s_bootstrap_host }}"
+  environment:
+    KUBECONFIG: /root/kubeadm-local-admin.conf
+  register: k8s_token_create
+  changed_when: true
+  when:
+    - not k8s_worker_joined_stat.stat.exists
+    - k8s_token_retrieve.stdout | length == 0
+
+- name: Set bootstrap token fact
+  ansible.builtin.set_fact:
+    k8s_bootstrap_token: "{{ k8s_token_retrieve.stdout or (k8s_token_create.stdout | default('')) }}"
+  when: not k8s_worker_joined_stat.stat.exists
+
+- name: Retrieve CA certificate hash from bootstrap master
+  ansible.builtin.shell: |
+    set -o pipefail
+    openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt |
+    openssl rsa -pubin -outform der 2>/dev/null |
+    openssl dgst -sha256 -hex |
+    sed 's/^.* //'
+  delegate_to: "{{ k8s_bootstrap_host }}"
+  environment:
+    KUBECONFIG: /root/kubeadm-local-admin.conf
+  register: k8s_ca_hash_retrieve
+  changed_when: false
+  failed_when: k8s_ca_hash_retrieve.rc != 0
+  when: not k8s_worker_joined_stat.stat.exists
+
+- name: Set CA certificate hash fact
+  ansible.builtin.set_fact:
+    k8s_ca_cert_hash: "sha256:{{ k8s_ca_hash_retrieve.stdout }}"
+  when:
+    - not k8s_worker_joined_stat.stat.exists
+    - k8s_ca_hash_retrieve.stdout | length > 0
+
+- name: Create kubeadm join configuration for worker
+  ansible.builtin.template:
+    src: kubeadm-join-worker-config.yaml.j2
+    dest: /root/kubeadm-join-worker-config.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  when: not k8s_worker_joined_stat.stat.exists
+
+- name: Join worker node to cluster
+  ansible.builtin.command: >
+    kubeadm join
+    --config=/root/kubeadm-join-worker-config.yaml
+    --node-name={{ inventory_hostname }}
+  args:
+    creates: /etc/kubernetes/kubelet.conf
+  when: not k8s_worker_joined_stat.stat.exists

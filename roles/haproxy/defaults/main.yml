@@ -1,0 +1,48 @@
+---
+# Default variables for haproxy role
+
+# HAProxy listener configuration
+haproxy_port: 80
+haproxy_stats_port: 8404
+haproxy_config_dir: /etc/haproxy
+
+# Stats page authentication. Define haproxy_stats_password in inventory
+# (vault) to enable; the Prometheus scrape uses the same credentials.
+haproxy_stats_user: admin
+
+# TLS configuration
+haproxy_certs_dir: /etc/haproxy/certs
+haproxy_tls_enabled: true
+
+# Firewall configuration
+haproxy_firewall_zone: public
+
+# Backend definitions.
+# Each item defines a hostname-based route and the backend group/port to serve it.
+# - name: short name used for backend/acl identifiers
+# - hostname: HTTP Host header value to match
+# - group: inventory group containing backend servers
+# - port: backend service port
+# - healthcheck: HTTP health check request path
+# - default: whether this backend is the default fallback
+haproxy_backends:
+  - name: prometheus
+    hostname: "prometheus.example.com"
+    group: prometheus
+    port: 9090
+    healthcheck: "GET /-/healthy"
+    default: false
+
+  - name: alertmanager
+    hostname: "alertmanager.example.com"
+    group: prometheus
+    port: 9093
+    healthcheck: "GET /-/healthy"
+    default: false
+
+  - name: grafana
+    hostname: "grafana.example.com"
+    group: grafana
+    port: 3000
+    healthcheck: "GET /api/health"
+    default: true

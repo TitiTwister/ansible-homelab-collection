@@ -1,0 +1,14 @@
+---
+# Main tasks for openvpn role
+
+- name: Include install tasks
+  ansible.builtin.include_tasks: install.yml
+
+- name: Include certificate fetch tasks
+  ansible.builtin.include_tasks: fetch_certs.yml
+
+- name: Include configuration tasks
+  ansible.builtin.include_tasks: configure.yml
+
+- name: Include client config generation tasks
+  ansible.builtin.include_tasks: generate_client_configs.yml

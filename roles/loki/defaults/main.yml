@@ -1,0 +1,26 @@
+---
+# Default variables for loki role
+
+# Loki release (GitHub upstream binary, same release line as promtail)
+loki_version: "3.7.7"
+
+# Loki configuration
+loki_port: 3100
+loki_grpc_port: 9096
+loki_user: loki
+loki_group: loki
+loki_config_dir: /etc/loki
+loki_config_file: "{{ loki_config_dir }}/loki-config.yml"
+loki_data_dir: /var/lib/loki
+
+# Retention enforced by the compactor (31 days)
+loki_retention_period: "744h"
+
+# Entries older than this are rejected at ingestion (keeps restarts from
+# replaying ancient logs); must stay below the retention period.
+loki_reject_old_samples_max_age: "168h"
+
+# Per-tenant ingestion limits, sized for a single-binary home-lab
+# deployment of journald streams
+loki_ingestion_rate_mb: 8
+loki_ingestion_burst_size_mb: 16

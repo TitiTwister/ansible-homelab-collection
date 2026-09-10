@@ -1,0 +1,10 @@
+---
+# Longhorn Helm values, rendered by the k8s role from inventory variables.
+persistence:
+  defaultClass: true
+service:
+  ui:
+    type: {{ k8s_longhorn_ui_service_type | to_json }}
+{% if k8s_longhorn_ui_service_type == "NodePort" %}
+    nodePort: {{ k8s_longhorn_ui_nodeport }}
+{% endif %}

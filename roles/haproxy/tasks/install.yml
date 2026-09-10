@@ -1,0 +1,22 @@
+---
+# Install HAProxy
+
+- name: Install HAProxy package
+  ansible.builtin.dnf:
+    name:
+      - haproxy
+    state: present
+
+- name: Create HAProxy runtime directory
+  ansible.builtin.file:
+    path: /run/haproxy
+    state: directory
+    owner: haproxy
+    group: haproxy
+    mode: '0755'
+
+- name: Enable and start HAProxy
+  ansible.builtin.systemd:
+    name: haproxy
+    enabled: true
+    state: started

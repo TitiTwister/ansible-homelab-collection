@@ -1,0 +1,33 @@
+---
+# Handlers for postgresql role
+
+- name: Reload etcd
+  ansible.builtin.systemd:
+    name: etcd
+    state: reloaded
+
+- name: Restart etcd
+  ansible.builtin.systemd:
+    name: etcd
+    state: restarted
+  # Serialized across hosts so the 3-member cluster never loses quorum.
+  throttle: 1
+
+- name: Reload patroni
+  ansible.builtin.systemd:
+    name: patroni
+    state: reloaded
+
+- name: Restart patroni
+  ansible.builtin.systemd:
+    name: patroni
+    state: restarted
+
+- name: Restart pgBackRest timers
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: restarted
+    daemon_reload: true
+  loop: "{{ __postgresql_backup_timers }}"
+  loop_control:
+    label: "{{ item }}"

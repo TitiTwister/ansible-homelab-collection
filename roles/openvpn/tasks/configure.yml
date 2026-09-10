@@ -1,0 +1,67 @@
+---
+
+- name: Ensure OpenVPN log directory exists
+  ansible.builtin.file:
+    path: /var/log/openvpn
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  become: true
+
+- name: Ensure client config directory exists
+  ansible.builtin.file:
+    path: /etc/openvpn/ccd
+    state: directory
+    owner: nobody
+    group: nobody
+    mode: "0750"
+  become: true
+
+- name: Create client CCD files
+  ansible.builtin.copy:
+    content: ""
+    dest: "/etc/openvpn/ccd/{{ item }}"
+    owner: nobody
+    group: nobody
+    mode: "0655"
+    force: false
+  loop: "{{ openvpn_clients }}"
+  become: true
+
+- name: Generate OpenVPN DH parameters (this may take a while)
+  ansible.builtin.command: openssl dhparam -out /etc/openvpn/dh.pem 2048
+  args:
+    creates: /etc/openvpn/dh.pem
+  become: true
+
+- name: Generate OpenVPN TLS auth key
+  ansible.builtin.command: openvpn --genkey secret /etc/openvpn/ta.key
+  args:
+    creates: /etc/openvpn/ta.key
+  become: true
+
+- name: Set permissions on TLS auth key
+  ansible.builtin.file:
+    path: /etc/openvpn/ta.key
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+
+- name: Deploy OpenVPN server configuration
+  ansible.builtin.template:
+    src: server.conf.j2
+    dest: /etc/openvpn/server/server.conf
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Restart OpenVPN
+
+- name: Start OpenVPN service
+  ansible.builtin.systemd:
+    name: openvpn-server@server
+    state: started
+    enabled: true
+  become: true

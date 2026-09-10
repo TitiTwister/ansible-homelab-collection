@@ -1,0 +1,117 @@
+global
+    log /dev/log local0
+    log /dev/log local1 notice
+    chroot /var/lib/haproxy
+    user haproxy
+    group haproxy
+    daemon
+
+defaults
+    log global
+    mode http
+    option httplog
+    option dontlognull
+    option forwardfor
+    option http-server-close
+    timeout connect 5000
+    timeout client 50000
+    timeout server 50000
+
+# Stats page
+listen stats
+    bind *:{{ haproxy_stats_port }}
+    stats enable
+    stats uri /stats
+    stats refresh 10s
+{% if haproxy_stats_password is defined %}
+    stats auth {{ haproxy_stats_user }}:{{ haproxy_stats_password }}
+{% endif %}
+    # Native Prometheus exporter, scraped as job haproxy (metrics_path /metrics)
+    http-request use-service prometheus-exporter if { path /metrics }
+
+{% if haproxy_tls_enabled | default(false) | bool %}
+# HTTP Frontend - redirect all traffic to HTTPS
+frontend monitoring_http
+    bind *:{{ haproxy_port }}
+    redirect scheme https code 301 if !{ ssl_fc }
+
+# HTTPS Frontend - hostname based routing
+frontend monitoring_https
+    bind *:443 ssl crt {{ haproxy_certs_dir }}/ alpn h2,http/1.1
+    http-request set-header X-Forwarded-Proto https
+{% else %}
+# HTTP Frontend - hostname based routing
+frontend monitoring_http
+    bind *:{{ haproxy_port }}
+    http-request set-header X-Forwarded-Proto http
+{% endif %}
+
+{% for backend in haproxy_backends | default([]) %}
+    acl host_{{ backend.name }} hdr(host) -i {{ backend.hostname }}
+{% endfor %}
+
+{% for backend in haproxy_backends | default([]) %}
+    use_backend {{ backend.name }}_backend if host_{{ backend.name }}
+{% endfor %}
+
+{% for backend in haproxy_backends | default([]) %}
+{% if backend.default | default(false) | bool %}
+    default_backend {{ backend.name }}_backend
+{% endif %}
+{% endfor %}
+
+{% for backend in haproxy_backends | default([]) %}
+backend {{ backend.name }}_backend
+    balance roundrobin
+    option httpchk {{ backend.healthcheck }}
+{% if backend.servers is defined %}
+{% for server in backend.servers %}
+    server {{ backend.name }}{{ loop.index }} {{ server }}:{{ backend.port }} check
+{% endfor %}
+{% else %}
+{% for host in groups[backend.group] | default([]) %}
+    server {{ host }} {{ hostvars[host].ansible_host | default(host) }}:{{ backend.port }} check
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+
+# TCP frontends/backends (e.g. Kubernetes API)
+{% for tcp_backend in haproxy_tcp_backends | default([]) %}
+frontend {{ tcp_backend.name }}_frontend
+    bind {{ tcp_backend.frontend.bind }}
+    mode {{ tcp_backend.frontend.mode | default('tcp') }}
+{% if tcp_backend.frontend.timeout_client is defined %}
+    timeout client {{ tcp_backend.frontend.timeout_client }}
+{% endif %}
+    default_backend {{ tcp_backend.name }}_backend
+
+backend {{ tcp_backend.name }}_backend
+    mode {{ tcp_backend.backend.mode | default('tcp') }}
+    balance {{ tcp_backend.backend.balance | default('roundrobin') }}
+{% if tcp_backend.backend.timeout_server is defined %}
+    timeout server {{ tcp_backend.backend.timeout_server }}
+{% endif %}
+{% if tcp_backend.backend.httpchk | default(false) | bool %}
+    option httpchk GET {{ tcp_backend.backend.httpchk_uri | default('/') }}
+{% endif %}
+{% if tcp_backend.backend.servers is defined %}
+{% set _server_targets = [] %}
+{% for server in tcp_backend.backend.servers %}
+{% set _ = _server_targets.append((tcp_backend.name ~ loop.index, server)) %}
+{% endfor %}
+{% else %}
+{% set _server_targets = [] %}
+{% for host in groups[tcp_backend.backend.servers_group] | default([]) %}
+{% set _ = _server_targets.append((host, hostvars[host].ansible_host | default(host))) %}
+{% endfor %}
+{% endif %}
+{% for name, address in _server_targets %}
+{% set _server_line = '    server ' ~ name ~ ' ' ~ address ~ ':' ~ tcp_backend.backend.port ~ ' check' %}
+{% if tcp_backend.backend.check_port | default('') | string | length > 0 %}
+{% set _server_line = _server_line ~ ' port ' ~ tcp_backend.backend.check_port %}
+{% endif %}
+{{ _server_line }}
+{% endfor %}
+
+{% endfor %}

@@ -1,0 +1,8 @@
+---
+# Main tasks for grafana role
+
+- name: Install Grafana
+  ansible.builtin.include_tasks: install.yml
+
+- name: Configure Grafana provisioning
+  ansible.builtin.include_tasks: configure.yml

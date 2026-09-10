@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: postgresql
+  namespace: tititwister
+  author: TitiTwister
+  description: PostgreSQL HA cluster with Patroni and etcd
+  license: Beerware
+  min_ansible_version: "2.18"
+  platforms:
+    - name: EL
+      versions: ["9"]
+  galaxy_tags: [database, postgresql, ha]
+
+dependencies: []

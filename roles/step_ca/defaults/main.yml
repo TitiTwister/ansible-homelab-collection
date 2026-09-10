@@ -1,0 +1,68 @@
+---
+# Default variables for step_ca role
+
+# CA Names
+step_ca_root_ca_name: "Home Lab Root CA"
+step_ca_intermediate_ca_name: "Home Lab Intermediate CA"
+
+# Installation paths
+step_ca_install_path: "/etc/step-ca"
+step_ca_binary_path: "/usr/bin"
+
+# CA material directory on the controller: populated by the PKI setup
+# (offline PKI host), consumed by the online CA server setup. Must be
+# defined in inventory.
+# step_ca_controller_files_dir: "/path/to/files/step_ca"
+
+# CA Certificate and Key paths
+step_ca_root_cert_path: "{{ step_ca_install_path }}/root_ca.crt"
+step_ca_root_key_path: "{{ step_ca_install_path }}/root_ca.key"
+step_ca_intermediate_cert_path: "{{ step_ca_install_path }}/intermediate_ca.crt"
+step_ca_intermediate_key_path: "{{ step_ca_install_path }}/intermediate_ca.key"
+
+# OpenVPN certificate path
+step_ca_certs_path: "{{ step_ca_install_path }}/certs"
+
+# Key configuration
+step_ca_key_type: "EC"
+step_ca_key_curve: P-256
+
+# Root CA validity (10 years)
+step_ca_root_validity: "87600h"
+
+# Intermediate CA validity (5 years)
+step_ca_intermediate_validity: "43800h"
+
+# File permissions
+step_ca_cert_permissions: "0644"
+step_ca_key_permissions: "0600"
+step_ca_dir_permissions: "0750"
+step_ca_user: "root"
+step_ca_group: "root"
+
+# Step CLI and CA versions
+step_ca_cli_version: "0.30.2"
+step_ca_version: "0.30.2"
+
+# OpenVPN server identity (leaf certificates issued by this CA)
+step_ca_openvpn_server_cn: "openvpn-server"
+step_ca_openvpn_server_public_ip: "127.0.0.1"
+step_ca_openvpn_server_private_ip: "127.0.0.1"
+
+# OpenVPN clients
+step_ca_openvpn_clients:
+  - client1
+  - client2
+
+# Leaf certificate validity (1 year)
+step_ca_leaf_validity: "8760h"
+
+# Online CA server settings
+step_ca_server_mode: false
+step_ca_server_ca_url: "localhost"
+step_ca_server_port: 443
+step_ca_server_user: "step-ca"
+step_ca_server_group: "step-ca"
+step_ca_server_cert_duration: "2160h"
+step_ca_server_cert_max_duration: "8760h"
+step_ca_server_provisioner_name: "ansible-jwk"

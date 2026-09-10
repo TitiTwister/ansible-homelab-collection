@@ -1,0 +1,8 @@
+---
+# Deploy the selected CSI plugin from the controller VM.
+# The controller has kubectl/helm and a working kubeconfig at /root/.kube/config.
+# helm upgrade --install is idempotent and converges the release on every run.
+
+- name: Deploy Longhorn CSI
+  ansible.builtin.include_tasks: csi_longhorn.yml
+  when: k8s_csi == "longhorn"

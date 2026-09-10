@@ -1,0 +1,17 @@
+[Unit]
+Description=etcd key-value store
+Documentation=https://etcd.io/docs/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User={{ postgresql_etcd_user }}
+Group={{ postgresql_etcd_group }}
+ExecStart={{ postgresql_etcd_install_dir }}/etcd --config-file {{ postgresql_etcd_config_file }}
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,27 @@
+---
+# Request certificates from the CA server via ACME DNS-01
+
+- name: Check which certificates already exist
+  ansible.builtin.stat:
+    path: "{{ certificate_certs_path }}/{{ item.name }}.crt"
+  loop: "{{ certificate_certs }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: certificate_cert_files_stat
+  become: true
+
+- name: Determine if any certificates need to be requested
+  ansible.builtin.set_fact:
+    certificate_certs_need_request: >-
+      {{
+        certificate_cert_files_stat.results
+        | selectattr('stat.exists', 'equalto', false)
+        | list
+        | length > 0
+      }}
+
+- name: Request certificates
+  ansible.builtin.include_tasks: get_cert.yml
+  loop: "{{ certificate_certs }}"
+  loop_control:
+    loop_var: cert

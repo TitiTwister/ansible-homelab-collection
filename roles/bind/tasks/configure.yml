@@ -1,0 +1,168 @@
+---
+# Configure BIND named server
+
+# Primary NS (ns-1)
+- name: Deploy named.conf (primary)
+  ansible.builtin.template:
+    src: named.conf.j2
+    dest: "{{ bind_config_dir }}/named.conf"
+    owner: root
+    group: named
+    mode: "0640"
+  notify: Restart named
+  when: inventory_hostname == bind_primary_ns
+
+- name: Build the managed zone list
+  ansible.builtin.set_fact:
+    bind_managed_zones: >-
+      {{ [{'zone': bind_zone_name, 'template': 'zone.forward.j2'}]
+         + (bind_reverse_zones | map('combine', {'template': 'zone.reverse.j2'}) | list) }}
+  when: inventory_hostname == bind_primary_ns
+
+- name: Read existing zone file contents
+  ansible.builtin.slurp:
+    src: "{{ bind_zones_dir }}/db.{{ item.zone }}"
+  register: bind_existing_zones_slurp
+  failed_when: false
+  loop: "{{ bind_managed_zones }}"
+  loop_control:
+    label: "{{ item.zone }}"
+  when: inventory_hostname == bind_primary_ns
+
+- name: Set existing forward zone serial value
+  ansible.builtin.set_fact:
+    bind_existing_serial_value: >-
+      {{ ((forward_zone_file.content | default('') | b64decode
+          | regex_findall(__bind_serial_extract_pattern))
+         or [ansible_facts.date_time.year ~ ansible_facts.date_time.month ~ ansible_facts.date_time.day ~ '00']) | first }}
+  vars:
+    forward_zone_file: "{{ bind_existing_zones_slurp.results
+      | selectattr('item.zone', 'equalto', bind_zone_name) | list | first | default({}) }}"
+  when: inventory_hostname == bind_primary_ns
+
+- name: Read live zone serial from the primary nameserver
+  ansible.builtin.command: dig @127.0.0.1 {{ bind_zone_name }} SOA +short
+  register: bind_live_soa_primary
+  changed_when: false
+  # The zone may not be served yet on first deployment.
+  failed_when: false
+  when: inventory_hostname == bind_primary_ns
+
+- name: Read live zone serial from the secondary nameserver
+  ansible.builtin.command: dig @{{ bind_secondary_ip }} {{ bind_zone_name }} SOA +short
+  register: bind_live_soa_secondary
+  changed_when: false
+  # The secondary may be unreachable or not serve the zone yet.
+  failed_when: false
+  when: inventory_hostname == bind_primary_ns
+
+- name: Set live zone serial values
+  ansible.builtin.set_fact:
+    bind_live_serial_primary: "{{ bind_live_soa_primary.stdout | default('') | regex_search('[0-9]{10}') | default('0', true) | int }}"
+    bind_live_serial_secondary: "{{ bind_live_soa_secondary.stdout | default('') | regex_search('[0-9]{10}') | default('0', true) | int }}"
+  when: inventory_hostname == bind_primary_ns
+
+- name: Determine whether zone content changed
+  ansible.builtin.set_fact:
+    bind_zone_content_changed: >-
+      {{ bind_zone_content_changed | default(false)
+         or (desired_zone_content | regex_replace(__bind_serial_strip_pattern, __bind_serial_strip_replacement)
+             != (zone_file.content | default('') | b64decode
+                 | regex_replace(__bind_serial_strip_pattern, __bind_serial_strip_replacement))) }}
+  vars:
+    zone_file: "{{ bind_existing_zones_slurp.results
+      | selectattr('item.zone', 'equalto', item.zone) | list | first | default({}) }}"
+    desired_zone_content: "{{ lookup('template', item.template,
+      template_vars={'bind_computed_serial': '0000000000'}) }}"
+  loop: "{{ bind_managed_zones }}"
+  loop_control:
+    label: "{{ item.zone }}"
+  when: inventory_hostname == bind_primary_ns
+
+- name: Determine whether the zone files must be redeployed
+  ansible.builtin.set_fact:
+    # Redeploy not only on content changes but also to repair a secondary
+    # whose serial ran ahead of the primary (a past deploy with a serial
+    # below the live DDNS-advanced one): transfers would never catch up.
+    bind_zone_redeploy: "{{ bind_zone_content_changed or bind_live_serial_secondary > bind_live_serial_primary }}"
+  when: inventory_hostname == bind_primary_ns
+
+- name: Compute bumped zone serial
+  ansible.builtin.set_fact:
+    # Never below the highest serial seen by any server, and never below
+    # today's YYYYMMDD00 floor (keeps same-day bumps ordered).
+    bind_computed_serial: >-
+      {% set base = [bind_existing_serial_value | int, bind_live_serial_primary, bind_live_serial_secondary] | max %}
+      {% set floor_serial = (ansible_facts.date_time.year ~ ansible_facts.date_time.month ~ ansible_facts.date_time.day ~ '00') | int %}
+      {{ '%010d' | format([base + 1, floor_serial] | max) }}
+  when:
+    - inventory_hostname == bind_primary_ns
+    - bind_zone_redeploy | bool
+
+- name: Freeze dynamic zones before deployment
+  ansible.builtin.command: rndc freeze {{ bind_zone_name }}
+  changed_when: false
+  failed_when: false
+  when:
+    - inventory_hostname == bind_primary_ns
+    - bind_tsig_key_secret | length > 0
+    - bind_zone_redeploy | bool
+
+- name: Deploy forward zone (primary)
+  ansible.builtin.template:
+    src: zone.forward.j2
+    dest: "{{ bind_zones_dir }}/db.{{ bind_zone_name }}"
+    owner: root
+    group: named
+    mode: "0640"
+  notify: Reload named
+  when:
+    - inventory_hostname == bind_primary_ns
+    - bind_zone_redeploy | bool
+
+- name: Deploy reverse zones (primary)
+  ansible.builtin.template:
+    src: zone.reverse.j2
+    dest: "{{ bind_zones_dir }}/db.{{ item.zone }}"
+    owner: root
+    group: named
+    mode: "0640"
+  loop: "{{ bind_reverse_zones }}"
+  loop_control:
+    label: "{{ item.zone }}"
+  notify: Reload named
+  when:
+    - inventory_hostname == bind_primary_ns
+    - bind_zone_redeploy | bool
+
+- name: Thaw dynamic zones after deployment
+  ansible.builtin.command: rndc thaw {{ bind_zone_name }}
+  changed_when: false
+  failed_when: false
+  when:
+    - inventory_hostname == bind_primary_ns
+    - bind_tsig_key_secret | length > 0
+    - bind_zone_redeploy | bool
+
+- name: Enforce zone file attributes (primary)
+  ansible.builtin.file:
+    path: "{{ bind_zones_dir }}/db.{{ item.zone }}"
+    state: file
+    owner: root
+    group: named
+    mode: "0640"
+  loop: "{{ bind_managed_zones }}"
+  loop_control:
+    label: "{{ item.zone }}"
+  when: inventory_hostname == bind_primary_ns
+
+# Secondary NS (ns-2)
+- name: Deploy named.conf (secondary)
+  ansible.builtin.template:
+    src: named.conf.secondary.j2
+    dest: "{{ bind_config_dir }}/named.conf"
+    owner: root
+    group: named
+    mode: "0640"
+  notify: Restart named
+  when: inventory_hostname == bind_secondary_ns

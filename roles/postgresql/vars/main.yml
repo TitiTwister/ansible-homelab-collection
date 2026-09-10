@@ -1,0 +1,9 @@
+---
+# Internal constants for the postgresql role - do not override
+
+__postgresql_backup_unit_dir: "/etc/systemd/system"
+
+__postgresql_backup_timers:
+  - pgbackrest@full.timer
+  - pgbackrest@diff.timer
+  - pgbackrest-check.timer

@@ -1,0 +1,17 @@
+[Unit]
+Description=Loki Log Aggregation
+Documentation=https://grafana.com/docs/loki/latest/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User={{ loki_user }}
+Group={{ loki_group }}
+ExecStart=/usr/local/bin/loki -config.file={{ loki_config_file }}
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+---
+# Main tasks for haproxy role
+
+- name: Install HAProxy
+  ansible.builtin.include_tasks: install.yml
+
+- name: Assemble TLS certificates for HAProxy
+  ansible.builtin.include_tasks: certificates.yml
+  when: certificate_certs is defined and certificate_certs | length > 0
+
+- name: Configure HAProxy
+  ansible.builtin.include_tasks: configure.yml

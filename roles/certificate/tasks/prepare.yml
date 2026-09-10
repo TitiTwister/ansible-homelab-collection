@@ -1,0 +1,50 @@
+---
+# Prepare directories and trust for certificate requests
+
+- name: Create certificate directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  loop:
+    - "{{ certificate_certs_path }}"
+    - "{{ certificate_private_path }}"
+
+- name: Download Root CA certificate from CA server
+  ansible.builtin.uri:
+    url: "{{ certificate_root_ca_url }}"
+    method: GET
+    return_content: true
+    validate_certs: false
+  register: certificate_root_ca_pem
+
+- name: Save Root CA certificate for trust
+  ansible.builtin.copy:
+    content: "{{ certificate_root_ca_pem.content }}"
+    dest: "{{ certificate_certs_path }}/{{ certificate_root_ca_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: Install Root CA into system trust store
+  ansible.builtin.copy:
+    src: "{{ certificate_certs_path }}/{{ certificate_root_ca_file }}"
+    dest: "/etc/pki/ca-trust/source/anchors/{{ certificate_root_ca_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+    remote_src: true
+  become: true
+  register: certificate_root_ca_installed
+
+- name: Update CA trust store
+  ansible.builtin.command: update-ca-trust extract
+  changed_when: true
+  become: true
+  # Synchronous run required: certificate requests later in this role need
+  # the CA trusted immediately, a deferred handler would run too late.
+  when: certificate_root_ca_installed.changed  # noqa: no-handler

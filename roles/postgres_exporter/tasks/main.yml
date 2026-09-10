@@ -1,0 +1,5 @@
+---
+# Main tasks for postgres_exporter role
+
+- name: Install postgres_exporter
+  ansible.builtin.include_tasks: install.yml

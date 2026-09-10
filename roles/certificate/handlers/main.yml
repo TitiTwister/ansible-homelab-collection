@@ -1,0 +1,7 @@
+---
+# Handlers for certificate role
+
+- name: Update CA trust
+  ansible.builtin.command: update-ca-trust extract
+  changed_when: true
+  become: true

@@ -1,0 +1,123 @@
+{% set pg_hba_rules = [
+      'local all ' ~ (postgresql_superuser_username | default('postgres')) ~ ' peer',
+      'host replication ' ~ postgresql_replication_username ~ ' 127.0.0.1/32 md5'] %}
+{% for host in groups[postgresql_group] | default([]) %}
+{% set _ = pg_hba_rules.append('host replication ' ~ postgresql_replication_username ~ ' ' ~ (hostvars[host].ansible_host | default(host)) ~ '/32 md5') %}
+{% endfor %}
+{% set _ = pg_hba_rules.append('host all all 127.0.0.1/32 md5') %}
+{% for host in groups[postgresql_group] | default([]) %}
+{% set _ = pg_hba_rules.append('host all all ' ~ (hostvars[host].ansible_host | default(host)) ~ '/32 md5') %}
+{% endfor %}
+{% if postgresql_tls_enabled | bool %}
+{% set _ = pg_hba_rules.append('hostssl all all 0.0.0.0/0 md5') %}
+{% set _ = pg_hba_rules.append('hostssl replication ' ~ postgresql_replication_username ~ ' 0.0.0.0/0 md5') %}
+{% else %}
+{% set _ = pg_hba_rules.append('host all all ' ~ postgresql_hba_network ~ ' md5') %}
+{% endif %}
+# Patroni configuration for PostgreSQL HA cluster
+# Managed by Ansible
+
+scope: {{ postgresql_cluster_name }}
+namespace: /db/
+name: {{ inventory_hostname }}
+
+restapi:
+  listen: 0.0.0.0:{{ postgresql_patroni_rest_api_port }}
+  connect_address: {{ ansible_host }}:{{ postgresql_patroni_rest_api_port }}
+
+etcd3:
+  hosts: {% for host in groups[postgresql_group] | default([]) %}{{ hostvars[host].ansible_host | default(host) }}:{{ postgresql_etcd_client_port }}{% if not loop.last %},{% endif %}{% endfor %}
+
+bootstrap:
+  dcs:
+    ttl: {{ postgresql_patroni_ttl }}
+    loop_wait: {{ postgresql_patroni_loop_wait }}
+    retry_timeout: {{ postgresql_patroni_retry_timeout }}
+    maximum_lag_on_failover: {{ postgresql_patroni_maximum_lag_on_failover }}
+    master_start_timeout: 300
+    synchronous_mode: false
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+        wal_level: replica
+        hot_standby: "on"
+        wal_keep_size: 512MB
+        max_wal_senders: 10
+        max_replication_slots: 10
+        wal_log_hints: "on"
+        archive_mode: "{{ postgresql_archive_mode }}"
+{% if postgresql_archive_command | length > 0 %}
+        archive_command: "{{ postgresql_archive_command }}"
+        archive_timeout: {{ postgresql_archive_timeout }}
+{% endif %}
+        max_connections: 200
+        shared_buffers: 256MB
+        effective_cache_size: 768MB
+        maintenance_work_mem: 64MB
+        checkpoint_completion_target: 0.9
+        wal_buffers: 7864kB
+        default_statistics_target: 100
+        random_page_cost: 1.1
+        effective_io_concurrency: 200
+        work_mem: 655kB
+        min_wal_size: 1GB
+        max_wal_size: 4GB
+        log_line_prefix: "%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h "
+        log_checkpoints: "on"
+        log_connections: "on"
+        log_disconnections: "on"
+        log_lock_waits: "on"
+        log_temp_files: 0
+  initdb:
+    - encoding: UTF8
+    - data-checksums
+  pg_hba:
+{% for rule in pg_hba_rules %}
+    - {{ rule }}
+{% endfor %}
+  users:
+    {{ postgresql_superuser_username | default('postgres') }}:
+      password: "{{ postgresql_superuser_password | default('postgres') }}"
+    {{ postgresql_replication_username }}:
+      password: "{{ postgresql_replication_password | default('replicator') }}"
+
+postgresql:
+  listen: {{ postgresql_listen_addresses }}:{{ postgresql_port }}
+  connect_address: {{ ansible_host }}:{{ postgresql_port }}
+  data_dir: {{ postgresql_data_dir }}
+  bin_dir: /usr/pgsql-{{ postgresql_version }}/bin
+  pgpass: /tmp/pgpass0
+  authentication:
+    replication:
+      username: {{ postgresql_replication_username }}
+      password: {{ postgresql_replication_password | default('replicator') }}
+    superuser:
+      username: {{ postgresql_superuser_username | default('postgres') }}
+      password: "{{ postgresql_superuser_password | default('postgres') }}"
+  parameters:
+    unix_socket_directories: /var/run/postgresql
+{% if postgresql_tls_enabled | bool %}
+    ssl: on
+    ssl_cert_file: {{ postgresql_tls_cert_file }}
+    ssl_key_file: {{ postgresql_tls_key_file }}
+    ssl_ca_file: {{ postgresql_tls_ca_file }}
+{% endif %}
+{% if postgresql_archive_mode != 'off' %}
+    archive_mode: "{{ postgresql_archive_mode }}"
+    archive_command: "{{ postgresql_archive_command }}"
+    archive_timeout: {{ postgresql_archive_timeout }}
+{% endif %}
+  pg_hba:
+{% for rule in pg_hba_rules %}
+    - {{ rule }}
+{% endfor %}
+
+watchdog:
+  mode: off
+
+tags:
+  nofailover: false
+  noloadbalance: false
+  clonefrom: false
+  nosync: false

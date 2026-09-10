@@ -1,0 +1,28 @@
+---
+# Install and enable firewalld
+
+- name: Install firewalld
+  ansible.builtin.dnf:
+    name: firewalld
+    state: present
+
+- name: Enable and start firewalld
+  ansible.builtin.systemd:
+    name: firewalld
+    enabled: true
+    state: started
+
+- name: Check if reboot is required
+  ansible.builtin.command: needs-restarting -r
+  register: firewall_needs_restarting
+  changed_when: false
+  failed_when: false
+
+- name: Reboot if required
+  ansible.builtin.reboot:
+    msg: "Rebooting to activate system updates"
+    connect_timeout: 5
+    reboot_timeout: 300
+    pre_reboot_delay: 0
+    post_reboot_delay: 30
+  when: firewall_needs_restarting.rc == 1

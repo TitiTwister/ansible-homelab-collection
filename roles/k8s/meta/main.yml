@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: k8s
+  namespace: tititwister
+  author: TitiTwister
+  description: Highly available Kubernetes cluster with kubeadm
+  license: Beerware
+  min_ansible_version: "2.18"
+  platforms:
+    - name: EL
+      versions: ["9"]
+  galaxy_tags: [kubernetes, containers, infrastructure]
+
+dependencies: []
