@@ -29,6 +29,8 @@ Key tunables:
 | `k8s_cilium_hubble_ui_service_type` | `NodePort` | Hubble UI service type |
 | `k8s_cilium_hubble_ui_nodeport` | `31235` | Pinned NodePort for the Hubble UI |
 | `k8s_metallb_enabled` | `true` | Deploy MetalLB |
+| `k8s_metallb_version` | `0.14.8` | MetalLB version (upstream manifest tag) |
+| `k8s_metallb_manifest_checksum` | sha256 of the pinned manifest | `sha256:<hex>` of `metallb-native.yaml` for `k8s_metallb_version`; update together with the version. Enables idempotent check mode and download verification |
 | `k8s_kubestatemetrics_enabled` | `true` | Deploy kube-state-metrics |
 | `k8s_kubestatemetrics_chart_version` | `8.4.2` | kube-state-metrics Helm chart version |
 | `k8s_kubestatemetrics_namespace` | `kube-system` | Namespace for the kube-state-metrics release |

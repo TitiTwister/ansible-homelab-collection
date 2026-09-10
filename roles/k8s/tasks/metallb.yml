@@ -13,6 +13,9 @@
     url: "https://raw.githubusercontent.com/metallb/metallb/v{{ k8s_metallb_version }}/config/manifests/metallb-native.yaml"
     dest: /tmp/metallb-native.yaml
     mode: "0644"
+    # Checksum pin: lets check mode verify the staged file (get_url cannot
+    # compare a URL dest without one and always predicts a download).
+    checksum: "{{ k8s_metallb_manifest_checksum | default(omit) }}"
 
 - name: Read deployed MetalLB controller image
   ansible.builtin.command: >
@@ -62,6 +65,9 @@
 
 - name: Detect network interface for MetalLB L2 advertisement
   ansible.builtin.shell: "set -o pipefail; ip -br a | grep {{ ansible_host }} | awk '!seen { print $1; seen = 1 }'"
+  # Read-only interface lookup; must run in check mode or the rendered
+  # L2Advertisement diffuses an empty interface against the deployed one.
+  check_mode: false
   register: k8s_node_interface
   changed_when: false
 

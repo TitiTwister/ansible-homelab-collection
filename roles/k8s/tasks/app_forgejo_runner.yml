@@ -50,6 +50,9 @@
     owner: root
     group: root
     mode: "0600"
+  # The runner UUID comes from the registration command, skipped in check
+  # mode; rendering without it would diff against the deployed manifest.
+  when: not ansible_check_mode
 
 - name: Apply Forgejo runner manifest
   ansible.builtin.command: kubectl apply -f /tmp/forgejo-runner.yaml

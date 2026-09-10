@@ -113,6 +113,10 @@ k8s_etcd_readiness_url: "http://127.0.0.1:2381/readyz"
 # ------------------------------------------------------------------------------
 k8s_metallb_enabled: true
 k8s_metallb_version: "0.14.8"
+# sha256 of metallb-native.yaml for k8s_metallb_version — update together
+# with the version (curl <manifest-url> | shasum -a 256). Lets get_url verify
+# the staged file instead of re-downloading, and makes check mode accurate.
+k8s_metallb_manifest_checksum: "sha256:11b5906021fde56040cf10d1bcbaf5c2b7a4206045ebb103915347dfcc533f0e"
 # Pool of IPs from the node network used for LoadBalancer services.
 # Override in inventory for your environment.
 k8s_metallb_pool_name: "k8s-pool"

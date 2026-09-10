@@ -127,6 +127,9 @@
   ansible.builtin.uri:
     url: "http://{{ ansible_host }}:{{ postgresql_patroni_rest_api_port }}/health"
     status_code: 200
+  # Read-only health probe; must actually run or the until condition has
+  # no status to evaluate in check mode.
+  check_mode: false
   register: postgresql_patroni_health_check
   until: postgresql_patroni_health_check.status == 200
   retries: 18
@@ -138,6 +141,9 @@
     url: "http://{{ ansible_host }}:{{ postgresql_patroni_rest_api_port }}/cluster"
     return_content: true
     status_code: 200
+  # Read-only GET; must actually run so leader discovery keeps working in
+  # check mode.
+  check_mode: false
   register: postgresql_patroni_cluster_state
   run_once: true
   delegate_to: "{{ postgresql_bootstrap_host }}"

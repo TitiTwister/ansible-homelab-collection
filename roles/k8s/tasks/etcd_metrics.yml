@@ -39,4 +39,4 @@
     - k8s_etcd_pod_state.stdout is search(',True$')
   retries: 36
   delay: 5
-  when: k8s_etcd_manifest_configured.changed  # noqa: no-handler
+  when: k8s_etcd_manifest_configured.changed and not ansible_check_mode  # noqa: no-handler

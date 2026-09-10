@@ -111,4 +111,4 @@
     or 'Failed' in k8s_forgejo_backup_build_watch.stdout
   retries: 60
   delay: 15
-  when: k8s_forgejo_backup_rebuild_job | bool
+  when: k8s_forgejo_backup_rebuild_job | bool and not ansible_check_mode

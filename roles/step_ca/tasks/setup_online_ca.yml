@@ -28,7 +28,7 @@
 
 - name: Deploy Root CA certificate
   ansible.builtin.copy:
-    content: "{{ lookup('ansible.builtin.file', step_ca_controller_files_dir ~ '/root_ca.crt') }}"
+    content: "{{ lookup('ansible.builtin.file', step_ca_controller_files_dir ~ '/root_ca.crt', rstrip=False) }}"
     dest: "{{ step_ca_install_path }}/certs/root_ca.crt"
     owner: "{{ step_ca_server_user }}"
     group: "{{ step_ca_server_group }}"
@@ -37,7 +37,7 @@
 
 - name: Deploy Intermediate CA certificate
   ansible.builtin.copy:
-    content: "{{ lookup('ansible.builtin.file', step_ca_controller_files_dir ~ '/intermediate_ca.crt') }}"
+    content: "{{ lookup('ansible.builtin.file', step_ca_controller_files_dir ~ '/intermediate_ca.crt', rstrip=False) }}"
     dest: "{{ step_ca_install_path }}/certs/intermediate_ca.crt"
     owner: "{{ step_ca_server_user }}"
     group: "{{ step_ca_server_group }}"
@@ -46,7 +46,7 @@
 
 - name: Deploy Intermediate CA private key
   ansible.builtin.copy:
-    content: "{{ lookup('ansible.builtin.file', step_ca_controller_files_dir ~ '/intermediate_ca.key') }}"
+    content: "{{ lookup('ansible.builtin.file', step_ca_controller_files_dir ~ '/intermediate_ca.key', rstrip=False) }}"
     dest: "{{ step_ca_install_path }}/secrets/intermediate_ca_key"
     owner: "{{ step_ca_server_user }}"
     group: "{{ step_ca_server_group }}"
@@ -154,6 +154,9 @@
   ansible.builtin.shell: >
     /usr/local/bin/step certificate fingerprint
     {{ step_ca_install_path }}/certs/root_ca.crt
+  # Read-only query; runs in check mode so the fingerprint saved below is
+  # the real value instead of an empty string.
+  check_mode: false
   register: step_ca_ca_fingerprint
   changed_when: false
 

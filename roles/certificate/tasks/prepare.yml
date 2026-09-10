@@ -19,6 +19,9 @@
     method: GET
     return_content: true
     validate_certs: false
+  # Read-only GET; uri has no check-mode support and would skip, leaving
+  # the register without content for the trust tasks below.
+  check_mode: false
   register: certificate_root_ca_pem
 
 - name: Save Root CA certificate for trust

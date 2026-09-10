@@ -14,6 +14,9 @@
     url: "http://{{ ansible_host }}:{{ postgresql_patroni_rest_api_port }}/cluster"
     return_content: true
     status_code: 200
+  # Read-only GET; must actually run so leader discovery keeps working in
+  # check mode.
+  check_mode: false
   register: postgresql_backup_patroni_cluster
   until: postgresql_backup_patroni_cluster.status == 200
   retries: 12

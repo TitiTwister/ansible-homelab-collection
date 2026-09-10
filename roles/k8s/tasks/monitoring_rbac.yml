@@ -37,6 +37,7 @@
   retries: 12
   delay: 5
   changed_when: false
+  when: not ansible_check_mode
 
 - name: Extract the monitoring token to a staging file
   ansible.builtin.shell: >
@@ -85,9 +86,10 @@
   ansible.builtin.file:
     path: "{{ item }}"
     state: absent
+  # The RBAC manifest holds no credentials; keeping it lets the render
+  # converge instead of re-creating it on every run.
   loop:
     - /tmp/k8s-monitoring-token
     - /tmp/k8s-monitoring-ca.crt
-    - /tmp/monitoring-rbac.yaml
   loop_control:
     label: "{{ item }}"
