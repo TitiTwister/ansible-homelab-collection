@@ -39,3 +39,7 @@
 - name: Deploy Headlamp
   ansible.builtin.include_tasks: app_headlamp.yml
   when: k8s_headlamp_enabled | bool
+
+- name: Bootstrap Flux CD (GitOps)
+  ansible.builtin.include_tasks: flux.yml
+  when: k8s_flux_enabled | bool

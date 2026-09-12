@@ -54,6 +54,7 @@ Key tunables:
 | `k8s_forgejo_hostname` | `git.example.com` | Public hostname (web and SSH) served via your reverse proxy |
 | `k8s_forgejo_ssh_hostname` | `{{ k8s_forgejo_hostname }}` | Hostname advertised in SSH clone URLs |
 | `k8s_forgejo_ssh_port` | `22` | Port advertised in SSH clone URLs (e.g. reverse proxy TCP frontend port) |
+| `k8s_forgejo_api_url` | `https://{{ k8s_forgejo_hostname }}/api/v1` | REST API base URL, checked post-deploy with the admin account |
 | `k8s_forgejo_loadbalancer_ip` | *none* | MetalLB IP shared by the web (80) and SSH (22) services |
 | `k8s_forgejo_persistence_size` | `20Gi` | Repository storage size |
 | `k8s_forgejo_storage_class` | `""` | StorageClass (cluster default when empty) |
@@ -62,8 +63,8 @@ Key tunables:
 | `k8s_forgejo_db_name` / `k8s_forgejo_db_user` | `forgejo` | Database name and user |
 | `k8s_forgejo_db_password` | *none* | Database password (vault) |
 | `k8s_forgejo_db_ca_files` | `[]` | CA cert paths (on the Ansible controller): step-ca root + intermediate, trusted by all Forgejo and runner containers |
-| `k8s_forgejo_admin_username` | `forgejo-admin` | Initial administrator username (must not be a Forgejo reserved name, e.g. `admin`) |
-| `k8s_forgejo_admin_password` | *none* | Initial administrator password (vault, first creation only) |
+| `k8s_forgejo_admin_username` | `forgejo-admin` | Administrator username (must not be a Forgejo reserved name, e.g. `admin`) |
+| `k8s_forgejo_admin_password` | *none* | Administrator password (vault); re-applied on every Forgejo start (`keepUpdated`), so the vault value is the source of truth |
 | `k8s_forgejo_runner_enabled` | `true` | Deploy the Forgejo Actions runner |
 | `k8s_forgejo_runner_image` | `data.forgejo.org/forgejo/runner:13` | Runner image |
 | `k8s_forgejo_runner_dind_image` | `docker:28-dind` | Docker-in-Docker sidecar image |
@@ -88,6 +89,23 @@ Key tunables:
 | `k8s_forgejo_backup_image_tag` | `<k8s version>-1` | Toolchain image tag; bump to force a rebuild |
 | `k8s_forgejo_backup_kaniko_image` | `gcr.io/kaniko-project/executor:v1.23.2` | Image used by the in-cluster build Job |
 | `k8s_forgejo_backup_registry_host` / `_owner` / `_user` / `_password` | derived | Forgejo container registry for the toolchain image (defaults to the admin account, vault) |
+| `k8s_flux_enabled` | `false` | Bootstrap Flux CD against a git server and let it own in-cluster app state |
+| `k8s_flux_version` | `2.9.5` | flux CLI / components version (bump and re-run to upgrade Flux) |
+| `k8s_flux_namespace` | `flux-system` | Namespace for the Flux controllers and CRs |
+| `k8s_flux_repo_name` | `flux-infra` | Fleet repository name (one repo for all Flux-managed apps) |
+| `k8s_flux_repo_ssh_url` | *none* | Git SSH URL with embedded port, e.g. `ssh://git@git.example.com:2222/flux-bot/flux-infra.git` |
+| `k8s_flux_repo_api_url` | *none* | Git server REST API base, e.g. `https://git.example.com/api/v1` |
+| `k8s_flux_sync_path` | `clusters/<cluster>` | Repository path Flux watches (holds `flux-system/` and the apps kustomization) |
+| `k8s_flux_apps_path` | `apps` | Repository directory holding one subdirectory per Flux-managed app |
+| `k8s_flux_apps_interval` | `10m` | Reconciliation interval of the apps kustomization |
+| `k8s_flux_git_branch` | `main` | Fleet repository branch |
+| `k8s_flux_bot_username` | `flux-bot` | Machine user owning the fleet repository (must not be reserved on the git server) |
+| `k8s_flux_bot_email` | `flux-bot@example.com` | Machine user email (also the git commit identity of seeds) |
+| `k8s_flux_bot_password` | *none* | Machine user password (vault; only used for API calls during setup) |
+| `k8s_flux_human_collaborator` | `""` | Human account granted write access to the fleet repository (web UI edits) |
+| `k8s_flux_admin_username` / `k8s_flux_admin_password` | *none* | Instance admin credentials for the one-time bot user creation (vault) |
+| `k8s_flux_state_dir` | `/root/.flux` | Working state on the controller: deploy key + SSH known hosts |
+| `k8s_flux_repo_workdir` | `/root/<repo>` | Fleet repository checkout used for seeding (never updated after clone) |
 | `k8s_pod_subnet` | `10.244.0.0/16` | Pod network CIDR |
 | `k8s_service_subnet` | `10.96.0.0/12` | Service network CIDR |
 | `k8s_api_endpoint` | `k8s-api.example.com` | HA API endpoint |
@@ -119,6 +137,8 @@ Hosts in the controllers group receive:
 - `kubectl` (aligned with `k8s_kubernetes_version`).
 - `helm` (aligned with `k8s_helm_version`).
 - Optional `kubeadm` if `k8s_controller_install_kubeadm: true`.
+- Optional `k9s` if `k8s_controller_install_k9s: true`.
+- Optional `flux` CLI and `git` if `k8s_flux_enabled` (GitOps bootstrap and fleet repository seeding run from there).
 - Optional `aws-cli` (appstream `awscli2`) if `k8s_controller_awscli_enabled` — the backup restore runbook uses it to fetch encrypted dumps from S3.
 - The cluster admin kubeconfig, with the server rewritten to the HA API endpoint (`k8s_api_endpoint`).
 
@@ -306,10 +326,14 @@ force a rebuild after changing the Containerfile, bump
 `k8s_forgejo_backup_image_tag` (or delete the
 `forgejo-backup-image-build` Job) and re-run the playbook. Only this
 build step pushes to the registry — nightly backups never touch it. The
-registry credentials default to the Forgejo admin account, provisioned
-from `vault_forgejo_admin_password` at first install
-(`initialOnlyRequireReset`): if you ever reset that password in the UI,
-keep the vault in sync or rebuilds will fail authentication.
+registry credentials default to the Forgejo admin account, whose
+password is re-applied from `vault_forgejo_admin_password` on every
+Forgejo start (`keepUpdated`): the vault is the source of truth, and a
+password reset in the UI is reverted on the next restart or upgrade.
+The role verifies after each deploy that the account can use the API —
+Forgejo answers 403 to every API request while an account has
+must-change-password set, which is why the chart must not leave that
+flag on an API-only account.
 
 RBAC is least-privilege: the `forgejo-backup` ServiceAccount may get/list
 pods, create pods/exec and get deployments in the Forgejo namespace only,
@@ -419,6 +443,61 @@ Notes:
 - Step 4's restore set assumes the chart's default `APP_DATA_PATH = /data`
   (visible in the dump's `app.ini`); adjust if your values differ.
 
+## Flux CD (optional GitOps)
+
+When `k8s_flux_enabled: true`, the role bootstraps
+[Flux CD](https://fluxcd.io) against a git server (e.g. Forgejo) and hands
+over in-cluster application state to GitOps:
+
+- **Machine user** (`k8s_flux_bot_username`, created via the admin API on
+  first run: restricted, private, `must_change_password: false`, password
+  from a vault variable) owns a single private **fleet repository**
+  (`k8s_flux_repo_name`). Its SSH key — generated on the controller at
+  `k8s_flux_deploy_key_path` — is Flux's identity, and pushes are
+  attributed to the bot.
+- **Human collaborator** (`k8s_flux_human_collaborator`) gets write access
+  to the repository, so day-to-day edits happen in the git web UI or via
+  plain `git push` as the human account.
+- **Repository layout**: `{{ k8s_flux_sync_path }}/flux-system/` (managed
+  by `flux bootstrap`), `{{ k8s_flux_sync_path }}/apps.yaml` (root
+  Kustomization reconciling `{{ k8s_flux_apps_path }}/`), and one
+  subdirectory per application. The apps root ships no `kustomization.yaml`
+  of its own: Flux generates one in memory from the directory tree, so
+  adding a Flux-managed app is pushing an `{{ k8s_flux_apps_path }}/<name>/`
+  directory (its own `kustomization.yaml` is optional but recommended,
+  e.g. for `configMapGenerator` content hashing).
+- **Day-2 workflow**: edit manifests in git; Flux reconciles within
+  `k8s_flux_apps_interval`. `flux reconcile kustomization apps
+  --with-source` forces an immediate sync. Ansible is not involved.
+- **Upgrades**: bump `k8s_flux_version` and re-run the playbook — `flux
+  bootstrap` is the reconciling operation for Flux itself (first run
+  installs, later runs converge). Only the initial installation reports a
+  change; later reconciliations report `changed: false` like `helm repo
+  update`.
+
+The git server API must be reachable over HTTPS from the controller (its
+certificate must be trusted there — apply the `certificate` role to the
+controller play) and git over SSH must work through whatever frontend the
+`k8s_flux_repo_ssh_url` uses.
+
+### Applications live in git
+
+The role bootstraps Flux and seeds the apps root kustomization — and
+nothing else. Application manifests are maintained only in the fleet
+repository: on a fresh install, push `{{ k8s_flux_apps_path }}/<name>/`
+and Flux reconciles it within `k8s_flux_apps_interval` (the app
+directories of an existing cluster make a fine template). Removing an app
+is removing its directory; `prune: true` garbage-collects the cluster
+objects on the next sync.
+
+The apps root seeding itself is seed-once: rendered from the role
+template, committed as the bot, pushed, reconciled — but only when
+`{{ k8s_flux_sync_path }}/apps.yaml` does not already exist in the
+repository checkout. Afterwards the repository is the source of truth;
+playbook re-runs never overwrite git edits. To re-seed after a role
+update, delete the `k8s_flux_repo_workdir` checkout (and
+`{{ k8s_flux_sync_path }}/apps.yaml` in the repository) and re-run.
+
 ## Usage
 
 ```bash
@@ -438,7 +517,7 @@ The `k8s` role is designed to run in the following order:
 
 1. **Control plane** — bootstrap the first master, then join the remaining masters.
 2. **Controller** — install `kubectl`/`helm` and fetch the admin kubeconfig.
-3. **Addons** — deploy CNI, MetalLB (if enabled), CSI, and Forgejo (if enabled) from the controller.
+3. **Addons** — deploy CNI, MetalLB (if enabled), CSI, Forgejo (if enabled), Flux (if enabled) and the Flux-managed apps from the controller.
 4. **Workers** — join worker nodes. CNI is already in place, so workers become `Ready` immediately.
 
 This ordering ensures the cluster is fully functional before workers join.

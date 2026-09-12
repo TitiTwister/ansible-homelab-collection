@@ -60,7 +60,13 @@ deployment:
 gitea:
   admin:
     existingSecret: forgejo-admin-secret
-    passwordMode: initialOnlyRequireReset
+    # keepUpdated re-applies the vault password on every start with
+    # must-change-password cleared. The account is API-only (Ansible,
+    # registry pushes); nobody signs in through the web UI to complete a
+    # forced reset, and Forgejo answers 403 to every API request while
+    # the flag is set. The initialOnly* modes apply the password only at
+    # account creation and never clear the flag afterwards.
+    passwordMode: keepUpdated
     email: {{ k8s_forgejo_admin_email | to_json }}
 
   # The database password never appears in Helm values; it is injected as an

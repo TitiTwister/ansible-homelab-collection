@@ -187,6 +187,9 @@ k8s_forgejo_ssh_hostname: "{{ k8s_forgejo_hostname }}"
 # of a reverse proxy TCP frontend. Not the port the container listens on.
 k8s_forgejo_ssh_port: 22
 
+# REST API base URL, used by the post-deploy admin account check.
+k8s_forgejo_api_url: "https://{{ k8s_forgejo_hostname }}/api/v1"
+
 # MetalLB IP shared by the web (port 80) and SSH (port 22) services.
 k8s_forgejo_loadbalancer_ip: ""
 
@@ -207,9 +210,10 @@ k8s_forgejo_db_password: ""
 # system pool alongside each image's own public roots).
 k8s_forgejo_db_ca_files: []
 
-# Initial administrator account. The password is set from a vault variable
-# in inventory and only applied when the account is first created. The
-# username must not be a Forgejo reserved name (validated in the tasks).
+# Administrator account. The password is set from a vault variable in
+# inventory and re-applied on every Forgejo start (chart passwordMode
+# keepUpdated), so the vault value is the source of truth. The username
+# must not be a Forgejo reserved name (validated in the tasks).
 k8s_forgejo_admin_username: "forgejo-admin"
 k8s_forgejo_admin_email: "admin@{{ k8s_forgejo_hostname }}"
 k8s_forgejo_admin_password: ""
@@ -301,6 +305,64 @@ k8s_forgejo_backup_kaniko_image: "gcr.io/kaniko-project/executor:v1.23.2"
 k8s_forgejo_backup_kubectl_version: "{{ k8s_kubernetes_version }}"
 
 # ------------------------------------------------------------------------------
+# Flux CD (optional GitOps)
+# ------------------------------------------------------------------------------
+# Bootstrap Flux CD against a git server (e.g. Forgejo) and let it own the
+# in-cluster application state. A dedicated machine user (the "flux bot")
+# owns the fleet repository; a human collaborator keeps write access for
+# web UI edits. Application manifests are seeded into the repository once
+# — afterwards the repository is the source of truth: edit in git and Flux
+# syncs (polling interval; no Ansible re-run needed).
+k8s_flux_enabled: false
+
+# flux CLI / components version (github.com/fluxcd/flux2 releases).
+k8s_flux_version: "2.9.5"
+k8s_flux_namespace: "flux-system"
+
+# Fleet repository: one private repository holding the desired state of
+# every Flux-managed app (apps/<name>/). Created under the bot account if
+# missing. The SSH URL must embed the git port when it is not 22, e.g.
+# ssh://git@git.example.com:2222/flux-bot/flux-infra.git.
+k8s_flux_repo_name: "flux-infra"
+k8s_flux_repo_ssh_url: ""
+# REST API base of the git server, e.g. https://git.example.com/api/v1.
+k8s_flux_repo_api_url: ""
+
+# Repository layout: path Flux watches (holds flux-system/ and the apps
+# Kustomization), the applications directory, and the branch.
+k8s_flux_sync_path: "clusters/{{ k8s_cluster_name }}"
+k8s_flux_apps_path: "apps"
+k8s_flux_apps_interval: "10m"
+k8s_flux_git_branch: "main"
+
+# Machine user owning the fleet repository. Created via the admin API on
+# first run (restricted, private, never logs in interactively; the password
+# is only used for the API calls during setup). Must not be a reserved
+# username on the git server.
+k8s_flux_bot_username: "flux-bot"
+k8s_flux_bot_email: "flux-bot@example.com"
+k8s_flux_bot_password: ""  # set from a vault variable in inventory
+
+# Human account granted write access to the fleet repository (web UI edits
+# and pushes). Empty skips the collaborator grant.
+k8s_flux_human_collaborator: ""
+
+# Instance admin credentials used for the one-time bot user creation.
+k8s_flux_admin_username: ""
+k8s_flux_admin_password: ""  # set from a vault variable in inventory
+
+# Derived from the SSH URL; no need to override.
+k8s_flux_git_hostname: "{{ k8s_flux_repo_ssh_url | urlsplit('hostname') }}"
+k8s_flux_git_ssh_port: "{{ k8s_flux_repo_ssh_url | urlsplit('port') }}"
+
+# Working state on the addons/controller host: deploy key material and the
+# fleet repository checkout used for seeding.
+k8s_flux_state_dir: "/root/.flux"
+k8s_flux_deploy_key_path: "{{ k8s_flux_state_dir }}/flux_ed25519"
+k8s_flux_deploy_key_title: "flux-{{ k8s_cluster_name }}"
+k8s_flux_repo_workdir: "/root/{{ k8s_flux_repo_name }}"
+
+# ------------------------------------------------------------------------------
 # Firewall zone
 # ------------------------------------------------------------------------------
 k8s_firewall_zone: "public"
@@ -310,6 +372,11 @@ k8s_firewall_zone: "public"
 # ------------------------------------------------------------------------------
 # Install kubeadm on controller VMs (useful for token/cert management).
 k8s_controller_install_kubeadm: false
+
+# Flux CLI and git on controller VMs (GitOps bootstrap and fleet repository
+# seeding run from there).
+k8s_controller_install_flux: "{{ k8s_flux_enabled | bool }}"
+k8s_controller_install_git: "{{ k8s_flux_enabled | bool }}"
 
 # aws-cli (appstream awscli2) on controller VMs, used by the backup
 # restore runbook to fetch encrypted dumps from S3.

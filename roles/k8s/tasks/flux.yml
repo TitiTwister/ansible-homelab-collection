@@ -1,0 +1,358 @@
+---
+# Bootstrap Flux CD (GitOps) against the fleet git repository.
+# Runs on the addons host (controller VM). A dedicated machine user (the
+# "flux bot") is created on the git server and owns the private fleet
+# repository; its SSH key is Flux's identity. A human collaborator keeps
+# write access so the repository can be edited through the web UI.
+# Re-runs are safe: the user, repository and key registrations tolerate
+# "already exists", and flux bootstrap reconciles Flux to k8s_flux_version.
+#
+# The role also seeds the apps root kustomization (the Kustomization
+# watching apps/) into the repository, seed-once. Application manifests
+# themselves are maintained in git only: push apps/<name>/ and Flux
+# reconciles them — the role never writes app manifests.
+
+- name: Validate Flux configuration
+  ansible.builtin.assert:
+    that:
+      - k8s_flux_repo_name | length > 0
+      - k8s_flux_repo_ssh_url | length > 0
+      - k8s_flux_repo_ssh_url is match('^ssh://')
+      - k8s_flux_repo_api_url is match('^https://')
+      - k8s_flux_git_branch | length > 0
+      - k8s_flux_sync_path | length > 0
+      - k8s_flux_bot_username | length > 0
+      - k8s_flux_bot_username not in __k8s_forgejo_reserved_usernames
+      - k8s_flux_bot_email | length > 0
+      - k8s_flux_bot_password | length > 0
+      - "'CHANGE_ME' not in k8s_flux_bot_password"
+      - k8s_flux_human_collaborator | length > 0
+      - k8s_flux_human_collaborator not in __k8s_forgejo_reserved_usernames
+      - k8s_flux_admin_username | length > 0
+      - k8s_flux_admin_password | length > 0
+    fail_msg: >-
+      Flux is enabled but its configuration is incomplete or invalid. Check
+      the k8s_flux_* inventory variables and the vault file: the repository
+      SSH and API URLs, the branch and sync path, the bot account
+      (username must not be reserved on the git server, password from a
+      vault variable), the human collaborator and the instance admin
+      credentials are all required.
+
+- name: Ensure Flux state directory exists
+  ansible.builtin.file:
+    path: "{{ k8s_flux_state_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Generate Flux deploy SSH key
+  community.crypto.openssh_keypair:
+    path: "{{ k8s_flux_deploy_key_path }}"
+    type: ed25519
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Create the Flux machine user on the git server
+  block:
+    # 401/403 are read rather than raised so the registered result reaches
+    # the rescue, which turns the no_log-censored failure into an
+    # actionable message. failed_when is the real gate: only 201 and the
+    # "already exists" variants are success.
+    - name: Create Flux machine user on the git server
+      ansible.builtin.uri:
+        url: "{{ k8s_flux_repo_api_url }}/admin/users"
+        method: POST
+        url_username: "{{ k8s_flux_admin_username }}"
+        url_password: "{{ k8s_flux_admin_password }}"
+        force_basic_auth: true
+        status_code: [201, 400, 401, 403, 409, 422]
+        timeout: 30
+        body_format: json
+        body:
+          username: "{{ k8s_flux_bot_username }}"
+          email: "{{ k8s_flux_bot_email }}"
+          password: "{{ k8s_flux_bot_password }}"
+          must_change_password: false
+          restricted: true
+          visibility: private
+      register: k8s_flux_bot_user
+      changed_when: k8s_flux_bot_user.status == 201
+      failed_when: >-
+        k8s_flux_bot_user.status != 201
+        and 'already' not in ((k8s_flux_bot_user.json | default({})).message | default('') | lower)
+      no_log: true
+      when: not ansible_check_mode
+  rescue:
+    - name: Report the Flux machine user creation failure
+      ansible.builtin.fail:
+        msg: >-
+          Creating the Flux machine user failed (HTTP
+          {{ k8s_flux_bot_user.status | default('connection failed') }},
+          {{ (k8s_flux_bot_user.json | default({})).message | default('no response message') }}).
+          HTTP 401 means the k8s_flux_admin_* credentials do not match the
+          git server admin account. HTTP 403 with "must change your
+          password" means the admin account is stuck in the
+          must-change-password state: Forgejo rejects every API request
+          until the password is changed, which never happens for an
+          API-only account — check that the helm chart value
+          gitea.admin.passwordMode is keepUpdated. Any other message is
+          the git server's validation error for the k8s_flux_bot_* fields.
+
+- name: Create Flux fleet repository
+  ansible.builtin.uri:
+    url: "{{ k8s_flux_repo_api_url }}/user/repos"
+    method: POST
+    url_username: "{{ k8s_flux_bot_username }}"
+    url_password: "{{ k8s_flux_bot_password }}"
+    force_basic_auth: true
+    status_code: [201, 400, 409, 422]
+    timeout: 30
+    body_format: json
+    body:
+      name: "{{ k8s_flux_repo_name }}"
+      private: true
+      auto_init: true
+      default_branch: "{{ k8s_flux_git_branch }}"
+      description: "Flux CD desired state"
+  register: k8s_flux_repo
+  until: >-
+    (k8s_flux_repo.status | default(0)) == 201
+    or 'already' in ((k8s_flux_repo.json | default({})).message | default('') | lower)
+  retries: 3
+  delay: 5
+  changed_when: k8s_flux_repo.status == 201
+
+- name: Grant the human collaborator write access to the fleet repository
+  ansible.builtin.uri:
+    url: >-
+      {{ k8s_flux_repo_api_url }}/repos/{{ k8s_flux_bot_username }}/{{ k8s_flux_repo_name }}/collaborators/{{ k8s_flux_human_collaborator }}
+    method: PUT
+    url_username: "{{ k8s_flux_bot_username }}"
+    url_password: "{{ k8s_flux_bot_password }}"
+    force_basic_auth: true
+    status_code: [201, 204]
+    timeout: 30
+    body_format: json
+    body:
+      permission: write
+  register: k8s_flux_collaborator
+  until: (k8s_flux_collaborator.status | default(0)) in [201, 204]
+  retries: 3
+  delay: 5
+  changed_when: k8s_flux_collaborator.status == 201
+
+- name: Read Flux deploy public key
+  ansible.builtin.slurp:
+    src: "{{ k8s_flux_deploy_key_path }}.pub"
+  register: k8s_flux_deploy_pub
+
+- name: List SSH keys of the Flux machine user
+  ansible.builtin.uri:
+    url: "{{ k8s_flux_repo_api_url }}/user/keys"
+    method: GET
+    url_username: "{{ k8s_flux_bot_username }}"
+    url_password: "{{ k8s_flux_bot_password }}"
+    force_basic_auth: true
+    status_code: [200]
+    timeout: 30
+  register: k8s_flux_bot_keys
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Register Flux deploy key on the machine user account
+  ansible.builtin.uri:
+    url: "{{ k8s_flux_repo_api_url }}/user/keys"
+    method: POST
+    url_username: "{{ k8s_flux_bot_username }}"
+    url_password: "{{ k8s_flux_bot_password }}"
+    force_basic_auth: true
+    status_code: [201, 400, 409, 422]
+    timeout: 30
+    body_format: json
+    body:
+      title: "{{ k8s_flux_deploy_key_title }}"
+      key: "{{ k8s_flux_deploy_pub.content | b64decode | trim }}"
+      read_only: false
+  register: k8s_flux_key
+  until: >-
+    (k8s_flux_key.status | default(0)) == 201
+    or 'already' in ((k8s_flux_key.json | default({})).message | default('') | lower)
+  retries: 3
+  delay: 5
+  changed_when: k8s_flux_key.status == 201
+  when:
+    - not ansible_check_mode
+    - k8s_flux_deploy_key_title not in (k8s_flux_bot_keys.json | default([]) | map(attribute='title') | list)
+
+- name: Scan the git server SSH host key
+  # Feeds the known_hosts file used by the fleet repository seeding git
+  # operations; flux bootstrap itself scans the host key (no
+  # --ssh-known-hosts flag on `bootstrap git`).
+  ansible.builtin.command:
+    cmd: ssh-keyscan -T 10 -p {{ k8s_flux_git_ssh_port }} {{ k8s_flux_git_hostname }}
+  register: k8s_flux_keyscan
+  until: k8s_flux_keyscan.stdout | length > 0
+  retries: 5
+  delay: 5
+  changed_when: false
+
+- name: Store the git server SSH known hosts
+  ansible.builtin.copy:
+    content: "{{ k8s_flux_keyscan.stdout_lines | sort | join('\n') }}\n"
+    dest: "{{ k8s_flux_state_dir }}/known_hosts"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Detect whether Flux is already bootstrapped
+  ansible.builtin.command:
+    cmd: kubectl get namespace {{ k8s_flux_namespace }}
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_flux_namespace_check
+  changed_when: false
+  failed_when: k8s_flux_namespace_check.rc not in [0, 1]
+  when: not ansible_check_mode
+
+- name: Run Flux pre-bootstrap checks
+  ansible.builtin.command:
+    # Absolute path: sudo's secure_path on controllers does not include
+    # /usr/local/bin, where controller.yml installs the CLI.
+    cmd: /usr/local/bin/flux check --pre
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_flux_precheck
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Bootstrap Flux against the fleet repository
+  # Absolute CLI path: sudo's secure_path lacks /usr/local/bin. The CLI
+  # scans the git server SSH host key itself (bootstrap git has no
+  # --ssh-known-hosts flag) and writes it into the flux-system Secret
+  # for the source controller.
+  ansible.builtin.command: >-
+    /usr/local/bin/flux bootstrap git
+    --url {{ k8s_flux_repo_ssh_url }}
+    --branch {{ k8s_flux_git_branch }}
+    --path {{ k8s_flux_sync_path }}
+    --namespace {{ k8s_flux_namespace }}
+    --version v{{ k8s_flux_version }}
+    --private-key-file {{ k8s_flux_deploy_key_path }}
+    --silent
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_flux_bootstrap
+  # flux bootstrap is the reconciling operation for Flux itself: the first
+  # run installs the controllers, later runs converge them to
+  # k8s_flux_version (the documented upgrade path — bump the variable and
+  # re-run). Only the initial installation reports a change.
+  changed_when: k8s_flux_namespace_check.rc | default(1) != 0
+  when: not ansible_check_mode
+
+- name: Wait for the Flux controllers to be available
+  ansible.builtin.command: >
+    kubectl --namespace {{ k8s_flux_namespace }}
+    wait --for=condition=available
+    deployment/source-controller deployment/kustomize-controller
+    --timeout=300s
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_flux_controllers_wait
+  until: k8s_flux_controllers_wait.rc == 0
+  retries: 5
+  delay: 15
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Clone the Flux fleet repository
+  ansible.builtin.git:
+    repo: "{{ k8s_flux_repo_ssh_url }}"
+    dest: "{{ k8s_flux_repo_workdir }}"
+    version: "{{ k8s_flux_git_branch }}"
+    key_file: "{{ k8s_flux_deploy_key_path }}"
+    ssh_opts: "-o UserKnownHostsFile={{ k8s_flux_state_dir }}/known_hosts -o IdentitiesOnly=yes"
+    # Never touch an existing checkout: after seeding, the repository is
+    # the source of truth and must not be rebased by re-runs.
+    update: false
+
+- name: Check whether the apps root kustomization is already seeded
+  ansible.builtin.stat:
+    path: "{{ k8s_flux_repo_workdir }}/{{ k8s_flux_sync_path }}/apps.yaml"
+  register: k8s_flux_apps_seeded
+
+- name: Render the Flux apps root kustomization into the fleet repository
+  ansible.builtin.template:
+    src: flux-apps.yaml.j2
+    dest: "{{ k8s_flux_repo_workdir }}/{{ k8s_flux_sync_path }}/apps.yaml"
+    mode: "0644"
+  when: not k8s_flux_apps_seeded.stat.exists
+
+# The git module can clone but not stage, commit or push: the three seed
+# steps below require the git CLI.
+- name: Stage the apps root seed in the fleet repository  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    cmd: git add -A
+    chdir: "{{ k8s_flux_repo_workdir }}"
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - not k8s_flux_apps_seeded.stat.exists
+
+- name: Commit the apps root seed into the fleet repository  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    # argv form: the commit message contains spaces, which the command
+    # module would otherwise split into separate arguments.
+    argv:
+      - git
+      - -c
+      - user.name={{ k8s_flux_bot_username }}
+      - -c
+      - user.email={{ k8s_flux_bot_email }}
+      - commit
+      - -m
+      - Add Flux apps root kustomization
+    chdir: "{{ k8s_flux_repo_workdir }}"
+  register: k8s_flux_apps_commit
+  failed_when: k8s_flux_apps_commit.rc not in [0, 1]
+  changed_when:
+    - k8s_flux_apps_commit.rc == 0
+    - "'nothing to commit' not in k8s_flux_apps_commit.stdout"
+  when:
+    - not ansible_check_mode
+    - not k8s_flux_apps_seeded.stat.exists
+
+- name: Push the apps root seed to the fleet repository  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    cmd: git push origin {{ k8s_flux_git_branch }}
+    chdir: "{{ k8s_flux_repo_workdir }}"
+  environment:
+    GIT_SSH_COMMAND: >-
+      ssh -i {{ k8s_flux_deploy_key_path }}
+      -o UserKnownHostsFile={{ k8s_flux_state_dir }}/known_hosts
+      -o IdentitiesOnly=yes
+  register: k8s_flux_apps_push
+  until: k8s_flux_apps_push.rc == 0
+  retries: 3
+  delay: 10
+  # git push reports its status on stderr.
+  changed_when: "'Everything up-to-date' not in (k8s_flux_apps_push.stdout ~ k8s_flux_apps_push.stderr)"
+  when:
+    - not ansible_check_mode
+    - k8s_flux_apps_commit is changed
+
+- name: Reconcile the Flux root kustomization
+  ansible.builtin.command:
+    # Absolute path: sudo's secure_path lacks /usr/local/bin.
+    cmd: /usr/local/bin/flux reconcile kustomization {{ k8s_flux_namespace }} --with-source
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: k8s_flux_root_reconcile
+  until: k8s_flux_root_reconcile.rc == 0
+  retries: 3
+  delay: 10
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - k8s_flux_apps_commit is changed

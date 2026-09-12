@@ -52,6 +52,21 @@ haproxy_backends:
     healthcheck: "GET /api/healthz"
 ```
 
+Optional `healthcheck_host` (hostname): sends the HTTP health check with
+this `Host` header instead of no host. Needed when the backend validates
+the Host header (e.g. the Homepage dashboard's `HOMEPAGE_ALLOWED_HOSTS`
+answers 400 to any other host, including HAProxy's check):
+
+```yaml
+haproxy_backends:
+  - name: homepage
+    hostname: "homepage.example.com"
+    group: k8s_workers
+    port: 31237
+    healthcheck: "GET /api/healthcheck"
+    healthcheck_host: "homepage.example.com"
+```
+
 ## TCP backend definition format
 
 ```yaml

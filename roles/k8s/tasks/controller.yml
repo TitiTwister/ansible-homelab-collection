@@ -46,6 +46,22 @@
     creates: /usr/local/bin/k9s
   when: k8s_controller_install_k9s | bool
 
+- name: Install Flux CLI
+  ansible.builtin.unarchive:
+    src: "https://github.com/fluxcd/flux2/releases/download/v{{ k8s_flux_version }}/flux_{{ k8s_flux_version }}_linux_amd64.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    include:
+      - flux
+    creates: /usr/local/bin/flux
+  when: k8s_controller_install_flux | bool
+
+- name: Install git for the Flux fleet repository
+  ansible.builtin.dnf:
+    name: git
+    state: present
+  when: k8s_controller_install_git | bool
+
 - name: Install aws-cli on controller for backup restores
   ansible.builtin.dnf:
     name: awscli2

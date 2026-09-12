@@ -63,7 +63,14 @@ frontend monitoring_http
 {% for backend in haproxy_backends | default([]) %}
 backend {{ backend.name }}_backend
     balance roundrobin
+{% if backend.healthcheck_host | default('') | length > 0 %}
+    # Some backends validate the Host header (e.g. Homepage's
+    # ALLOWED_HOSTS): send the check with the public hostname.
+    option httpchk
+    http-check send meth {{ backend.healthcheck.split(' ')[0] }} uri {{ backend.healthcheck.split(' ')[1] | default('/') }} hdr Host {{ backend.healthcheck_host }}
+{% else %}
     option httpchk {{ backend.healthcheck }}
+{% endif %}
 {% if backend.servers is defined %}
 {% for server in backend.servers %}
     server {{ backend.name }}{{ loop.index }} {{ server }}:{{ backend.port }} check
