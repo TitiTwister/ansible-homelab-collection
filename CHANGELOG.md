@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.1.1 (2026-09-13)
+
+Fix a Sunday false positive in the pgBackRest staleness alert.
+
+### Fixed
+- `prometheus`: `PgBackRestBackupStale` fired every Sunday: the diff
+  staleness threshold (26h) was shorter than the weekend gap between
+  successful differential backups (48h — Sunday's slot runs a full
+  backup, and the diff success timestamp is only refreshed Mon–Sat).
+  The threshold is now 52h (the weekend gap plus a buffer, mirroring
+  the full branch's one-day margin over its weekly cadence), the alert
+  gained a 30m `for` clause to dampen flapping, and the description
+  documents the weekend gap.
+
 ## v1.1.0 (2026-09-12)
 
 Flux CD GitOps support.

@@ -239,15 +239,16 @@ groups:
 
       - alert: PgBackRestBackupStale
         expr: >-
-          (time() - pgbackrest_backup_last_success_timestamp_seconds{type="diff"} > 93600)
+          (time() - pgbackrest_backup_last_success_timestamp_seconds{type="diff"} > 187200)
           or (time() - pgbackrest_backup_last_success_timestamp_seconds{type="full"} > 691200)
           or absent(pgbackrest_backup_last_success_timestamp_seconds{type="diff"})
           or absent(pgbackrest_backup_last_success_timestamp_seconds{type="full"})
+        for: 30m
         labels:
           severity: critical
         annotations:
           summary: "pgBackRest backups are stale"
-          description: "No successful diff backup in 26h or full backup in 8d on the PostgreSQL cluster. Either the timers are not firing, the leader ExecCondition is failing, or every run is failing. Also fires when no successful backup has ever been recorded (fresh deployment or dead timer)."
+          description: "No successful diff backup in 52h or full backup in 8d on the PostgreSQL cluster. The diff threshold covers the 48h weekend gap: Sunday's slot runs a full backup, so the diff timestamp only refreshes on Monday. Either the timers are not firing, the leader ExecCondition is failing, or every run is failing. Also fires when no successful backup has ever been recorded (fresh deployment or dead timer)."
 
       - alert: PgBackRestCheckFailed
         expr: pgbackrest_check_last_run_success == 0
