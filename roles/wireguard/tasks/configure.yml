@@ -1,0 +1,119 @@
+---
+# Configure the WireGuard server: keypairs, interface config, service
+
+# Keys are generated only when absent: the shell tasks carry a creates:
+# guard and report no change once the key files exist (umask keeps the
+# files private during creation, the file task enforces it declaratively).
+
+- name: Generate WireGuard server private key
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      umask 077
+      wg genkey > {{ __wireguard_config_dir }}/server.key
+    executable: /bin/bash
+  args:
+    creates: "{{ __wireguard_config_dir }}/server.key"
+  no_log: true
+  become: true
+
+- name: Generate WireGuard client private keys
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      umask 077
+      wg genkey > {{ __wireguard_config_dir }}/{{ item }}.key
+    executable: /bin/bash
+  args:
+    creates: "{{ __wireguard_config_dir }}/{{ item }}.key"
+  no_log: true
+  loop: "{{ wireguard_clients }}"
+  loop_control:
+    label: "{{ item }}"
+  become: true
+
+- name: Enforce WireGuard key file permissions
+  ansible.builtin.file:
+    path: "{{ __wireguard_config_dir }}/{{ item }}.key"
+    owner: root
+    group: root
+    mode: "0600"
+  loop: "{{ ['server'] + wireguard_clients }}"
+  loop_control:
+    label: "{{ item }}"
+  no_log: true
+  become: true
+
+# wg pubkey reads a private key on stdin, which the command module
+# cannot provide: shell with input redirection is the last resort.
+
+- name: Derive WireGuard server public key
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      wg pubkey < {{ __wireguard_config_dir }}/server.key
+    executable: /bin/bash
+  register: __wireguard_server_pubkey
+  changed_when: false
+  failed_when: __wireguard_server_pubkey.rc != 0
+  no_log: true
+  become: true
+
+- name: Derive WireGuard client public keys
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      wg pubkey < {{ __wireguard_config_dir }}/{{ item }}.key
+    executable: /bin/bash
+  register: __wireguard_client_pubkeys
+  changed_when: false
+  failed_when: __wireguard_client_pubkeys.rc != 0
+  no_log: true
+  loop: "{{ wireguard_clients }}"
+  loop_control:
+    label: "{{ item }}"
+  become: true
+
+- name: Compute WireGuard subnet prefix
+  ansible.builtin.set_fact:
+    __wireguard_subnet_prefix: "{{ wireguard_server_address.split('.')[0:3] | join('.') }}"
+
+# Clients are numbered from .2 in wireguard_clients list order,
+# after the server on .1.
+- name: Assemble WireGuard peer facts
+  ansible.builtin.set_fact:
+    __wireguard_peers: >-
+      {%- set peers = [] -%}
+      {%- for client in wireguard_clients -%}
+      {%- set pubkey = __wireguard_client_pubkeys['results'][loop.index0]['stdout'] -%}
+      {%- set _ = peers.append({
+        'name': client,
+        'public_key': pubkey | trim,
+        'ip': __wireguard_subnet_prefix ~ '.' ~ (loop.index + 1)}) -%}
+      {%- endfor -%}
+      {{ peers }}
+
+- name: Read WireGuard server private key
+  ansible.builtin.slurp:
+    src: "{{ __wireguard_config_dir }}/server.key"
+  register: __wireguard_server_key
+  no_log: true
+  become: true
+
+- name: Deploy WireGuard server configuration
+  ansible.builtin.template:
+    src: wg0.conf.j2
+    dest: "{{ __wireguard_config_dir }}/{{ wireguard_interface }}.conf"
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart WireGuard
+  no_log: true
+  become: true
+
+- name: Ensure WireGuard service is enabled and started
+  ansible.builtin.systemd:
+    name: "wg-quick@{{ wireguard_interface }}"
+    state: started
+    enabled: true
+  become: true

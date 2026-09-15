@@ -1,0 +1,37 @@
+---
+# Generate WireGuard client configuration files on the controller
+# 1. Read client private keys from the WireGuard server
+# 2. Template self-contained .conf files on the controller (keys embedded)
+
+- name: Ensure client config directories exist on controller
+  ansible.builtin.file:
+    path: "{{ wireguard_client_config_dir }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: false
+  loop: "{{ wireguard_clients }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Read WireGuard client private keys
+  ansible.builtin.slurp:
+    src: "{{ __wireguard_config_dir }}/{{ item }}.key"
+  register: __wireguard_client_keys
+  no_log: true
+  loop: "{{ wireguard_clients }}"
+  loop_control:
+    label: "{{ item }}"
+  become: true
+
+- name: Generate client .conf configuration files
+  ansible.builtin.template:
+    src: client.conf.j2
+    dest: "{{ wireguard_client_config_dir }}/{{ item.item }}/{{ item.item }}.conf"
+    mode: "0600"
+  loop: "{{ __wireguard_client_keys.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  delegate_to: localhost
+  become: false
+  no_log: true

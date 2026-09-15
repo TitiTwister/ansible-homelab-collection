@@ -1,0 +1,6 @@
+---
+# Internal constants for the wireguard role
+
+# wg-quick only reads interface configurations from /etc/wireguard:
+# this location cannot be overridden without breaking the service unit.
+__wireguard_config_dir: /etc/wireguard

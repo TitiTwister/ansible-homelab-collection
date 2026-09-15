@@ -1,0 +1,33 @@
+---
+# Default variables for wireguard role
+
+# Interface name and listening port (WireGuard is UDP only)
+wireguard_interface: wg0
+wireguard_port: 51820
+
+# VPN subnet (/24 only). The server takes .1, clients .2, .3, ...
+# in wireguard_clients list order.
+wireguard_server_address: "10.9.0.1/24"
+
+# Clients to configure
+wireguard_clients:
+  - client1
+  - client2
+
+# Client settings (full tunnel by default, like an OpenVPN
+# redirect-gateway setup)
+wireguard_dns:
+  - 8.8.8.8
+  - 8.8.4.4
+wireguard_client_allowed_ips:
+  - 0.0.0.0/0
+wireguard_persistent_keepalive: 25
+# MTU is auto-detected by wg-quick when empty
+wireguard_mtu: ""
+
+# Public IP or hostname clients use to reach the server
+wireguard_server_public_ip: "198.51.100.1"
+
+# Directory on the controller where client .conf files are generated.
+# Must be defined in inventory.
+# wireguard_client_config_dir: "/path/to/files/wireguard"

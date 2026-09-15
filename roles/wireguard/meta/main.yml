@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: wireguard
+  namespace: tititwister
+  author: TitiTwister
+  description: WireGuard server with generated keys and self-contained client configurations
+  license: Beerware
+  min_ansible_version: "2.18"
+  platforms:
+    - name: EL
+      versions: ["9"]
+  galaxy_tags: [vpn, wireguard, networking, security]
+
+dependencies: []

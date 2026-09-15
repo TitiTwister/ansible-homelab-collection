@@ -1,0 +1,18 @@
+---
+# Install WireGuard tools
+
+- name: Install WireGuard tools
+  ansible.builtin.dnf:
+    name:
+      - wireguard-tools
+    state: present
+  become: true
+
+- name: Ensure WireGuard configuration directory exists
+  ansible.builtin.file:
+    path: "{{ __wireguard_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  become: true

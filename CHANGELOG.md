@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.2.0 (2026-09-15)
+
+WireGuard VPN server support.
+
+### Added
+- `wireguard`: new role — installs and configures a WireGuard server
+  (UDP, `wg-quick@wg0`), generates server and client Curve25519 keypairs
+  idempotently on the server, and writes self-contained client `.conf`
+  files on the controller. NAT is delegated to firewalld masquerade; no
+  PKI, no `PostUp`/`PostDown`. Can run alongside the `openvpn` role on the
+  same host when given a distinct port and /24 subnet.
+
 ## v1.1.1 (2026-09-13)
 
 Fix a Sunday false positive in the pgBackRest staleness alert.

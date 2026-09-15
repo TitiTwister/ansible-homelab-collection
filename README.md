@@ -29,6 +29,7 @@ example, see [ansible-play-homelab](https://github.com/TitiTwister/ansible-play-
 | `tititwister.homelab.promtail` | Promtail journald shipper for Loki |
 | `tititwister.homelab.pushgateway` | Prometheus Pushgateway for batch job metrics |
 | `tititwister.homelab.step_ca` | step-ca PKI: offline root/intermediate CA and online CA server |
+| `tititwister.homelab.wireguard` | WireGuard server with generated keys and self-contained client configurations |
 
 ## Requirements
 
