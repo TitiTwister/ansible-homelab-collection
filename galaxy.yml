@@ -1,7 +1,7 @@
 ---
 namespace: tititwister
 name: homelab
-version: 1.2.0
+version: 1.2.1
 readme: README.md
 authors:
   - TitiTwister <https://github.com/TitiTwister>

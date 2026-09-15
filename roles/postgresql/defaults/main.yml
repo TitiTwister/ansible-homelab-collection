@@ -29,6 +29,21 @@ postgresql_etcd_user: "etcd"
 postgresql_etcd_group: "etcd"
 
 # ------------------------------------------------------------------------------
+# Extensions
+# ------------------------------------------------------------------------------
+# Cluster-wide extension names to make available on every node (the
+# matching package from postgresql_extension_packages is installed from
+# PGDG). Extensions shipped in the postgresql-contrib package
+# (uuid-ossp, pg_trgm, unaccent, ...) need no entry here.
+# Extensions are created per database via postgresql_databases[].extensions.
+postgresql_extensions: []
+
+# Extension name -> PGDG package mapping. Keep in sync with the major
+# version naming used by the PGDG repository (pgvector_17, ...).
+postgresql_extension_packages:
+  vector: "pgvector_{{ postgresql_version }}"
+
+# ------------------------------------------------------------------------------
 # Cluster identity
 # ------------------------------------------------------------------------------
 postgresql_cluster_name: "postgresql"

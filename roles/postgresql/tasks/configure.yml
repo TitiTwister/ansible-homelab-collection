@@ -190,6 +190,22 @@
   delegate_to: "{{ postgresql_bootstrap_host }}"
   become: true
 
+- name: Create database extensions
+  community.postgresql.postgresql_ext:
+    name: "{{ item.1 }}"
+    login_db: "{{ item.0.name }}"
+    state: present
+    login_host: "{{ postgresql_leader_host }}"
+    login_port: "{{ postgresql_port }}"
+    login_user: "{{ postgresql_superuser_username | default('postgres') }}"
+    login_password: "{{ postgresql_superuser_password | default('postgres') }}"
+  loop: "{{ postgresql_databases | default([]) | subelements('extensions', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.name }}:{{ item.1 }}"
+  run_once: true
+  delegate_to: "{{ postgresql_bootstrap_host }}"
+  become: true
+
 - name: Ensure monitoring user for postgres_exporter exists
   community.postgresql.postgresql_user:
     name: "{{ postgresql_monitoring_user.name }}"

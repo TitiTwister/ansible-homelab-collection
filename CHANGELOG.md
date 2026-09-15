@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.2.1 (2026-09-15)
+
+PostgreSQL Extensions support.
+
+### Added
+- `postgresql`: `postgresql_databases[].extensions` handles extensions 
+  to create in target database.Extensions whose files are not shipped in
+  `postgresql-contrib` (e.g. pgvector)
+
 ## v1.2.0 (2026-09-15)
 
 WireGuard VPN server support.

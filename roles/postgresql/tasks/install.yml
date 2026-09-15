@@ -14,6 +14,22 @@
     state: present
   become: true
 
+- name: Validate extension package mappings
+  ansible.builtin.assert:
+    that: postgresql_extensions | difference(postgresql_extension_packages.keys() | list) | length == 0
+    fail_msg: >-
+      No package mapping for extension(s):
+      {{ postgresql_extensions | difference(postgresql_extension_packages.keys() | list) | join(', ') }}.
+      Extensions shipped in postgresql{{ postgresql_version }}-contrib need no postgresql_extensions entry.
+  when: postgresql_extensions | length > 0
+
+- name: Install extension packages on every node
+  ansible.builtin.dnf:
+    name: "{{ postgresql_extensions | map('extract', postgresql_extension_packages) | list }}"
+    state: present
+  when: postgresql_extensions | length > 0
+  become: true
+
 - name: Install Patroni packages
   ansible.builtin.dnf:
     name:

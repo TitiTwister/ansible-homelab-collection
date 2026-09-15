@@ -35,6 +35,9 @@ postgresql_replication_password: "CHANGE_ME_IN_VAULT"
 postgresql_databases:
   - name: myapp
     owner: myapp
+    extensions:
+      - pg_trgm
+      - vector
 
 postgresql_users:
   - name: myapp
@@ -44,6 +47,28 @@ postgresql_users:
 Note: the rendered `pg_hba.conf` always includes a
 `local all postgres peer` rule so local tools (pgBackRest) can connect to
 PostgreSQL over the unix socket.
+
+### Extensions (optional)
+
+`postgresql_databases[].extensions` lists extensions to create in that
+database (`CREATE EXTENSION`, run as the superuser on the Patroni leader;
+replicated to standbys via WAL). Extensions whose files are not shipped in
+`postgresql-contrib` (e.g. pgvector) additionally need their package
+declared in `postgresql_extensions` so it is installed on every node:
+
+```yaml
+postgresql_extensions:
+  - vector
+```
+
+| Variable | Default | Description |
+|---|---|---|
+| `postgresql_extensions` | `[]` | Cluster-wide extension names to make available on every node (packages installed from PGDG). |
+| `postgresql_extension_packages` | `{vector: pgvector_<version>}` | Extension name -> PGDG package mapping. |
+
+Extensions provided by `postgresql-contrib` (uuid-ossp, pg_trgm, unaccent,
+...) need no `postgresql_extensions` entry; an unmapped name fails validation
+with an explicit message.
 
 ### Networking
 
