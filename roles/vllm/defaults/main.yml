@@ -1,0 +1,67 @@
+---
+# Default variables for vllm role
+
+# Serving profile: name of a file in the role's vars/profiles/
+# directory (without extension) describing one battle-tested
+# GPU+model combo - image pin, model, memory budget, context length,
+# serve arguments and container environment, each with its tuning
+# notes. Selecting a profile loads those values with include_vars
+# precedence, which OVERRIDES group_vars/host_vars: per-combo tuning
+# belongs in the profile file, ad-hoc overrides go through -e.
+# Defaults to the tested V100 + Qwen3-4B combo so a missing selection
+# cannot silently change what a host serves.
+vllm_profile: v100-16gb_qwen3-4b-instruct-2507
+
+# vLLM container image. Fallback only - normally pinned by the
+# profile to a release line matching the GPU architecture.
+vllm_image: "vllm/vllm-openai:v0.10.2"
+
+# HuggingFace model to serve. Fallback only - normally set by the
+# profile.
+vllm_model: "Qwen/Qwen3-4B-Instruct-2507"
+
+# Model name advertised by /v1/models and expected in API requests
+vllm_served_model_name: "{{ vllm_model | basename }}"
+
+# OpenAI-compatible API port (published by the container)
+vllm_port: 8000
+
+# Fraction of GPU memory vLLM may allocate (weights + KV cache).
+# Fallback only - normally set by the profile.
+vllm_gpu_memory_utilization: "0.90"
+
+# Maximum context length in tokens; empty string omits --max-model-len
+# and lets vLLM use the model's native context. Fallback only -
+# normally set by the profile.
+vllm_max_model_len: 32768
+
+# Extra `vllm serve` arguments appended verbatim. Fallback only -
+# normally set by the profile.
+vllm_extra_args: []
+
+# Container environment. Fallback only - normally set by the profile
+# (e.g. VLLM_USE_V1=0 for the V0 engine on Volta-class GPUs). Kept
+# empty here: with this repository's hash_behaviour=merge, a
+# non-empty fallback could never be cleared by a profile.
+vllm_env: {}
+
+# HuggingFace token for gated models; empty means anonymous access.
+# Provide via a vault file when needed.
+vllm_hf_token: ""
+
+# HuggingFace cache (model weights). Put it on a data disk mounted with
+# the common role `disks` mechanism.
+vllm_hf_cache_dir: /srv/vllm/hf
+
+# Configuration directory holding the container environment file
+vllm_config_dir: /etc/vllm
+
+# Fixed container name used by the systemd unit
+vllm_container_name: vllm
+
+# Desired service state: "started" (default) or "stopped" to pause
+# vLLM and free the GPU for other workloads. "stopped" also disables
+# the unit so a reboot does not re-grab the GPU. The driver, image and
+# configuration stay managed either way; changes made while paused are
+# applied on the next start.
+vllm_state: started

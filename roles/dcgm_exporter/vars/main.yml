@@ -1,0 +1,10 @@
+---
+# Internal constants for the dcgm_exporter role
+
+# Docker CE only: the NVIDIA runtime registration in daemon.json is
+# owned by a GPU role (e.g. vllm); this role only runs the exporter
+# container with --runtime nvidia.
+__dcgm_exporter_container_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io

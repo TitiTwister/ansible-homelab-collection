@@ -1,0 +1,12 @@
+---
+# Verify the deployment: the web interface answers on /health. The
+# first start runs database migrations, which can take a minute.
+
+- name: Wait for Open WebUI to answer on /health
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ openwebui_port }}/health"
+    return_content: true
+  register: openwebui_health
+  until: openwebui_health.status == 200
+  retries: 30
+  delay: 10

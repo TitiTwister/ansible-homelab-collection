@@ -1,0 +1,39 @@
+---
+# Serving profile: generic baseline for modern NVIDIA GPUs (compute
+# capability >= 7.5 - RTX 20xx and newer, A/H series) running the V1
+# engine.
+#
+# This is the starting TEMPLATE for new setups, not a tuned profile:
+# copy it to <gpu>_<model>.yml, pin the image to the current stable
+# release, adjust the model and tuning, then select it with
+# vllm_profile. Do not select it as-is on a real host: the floating
+# image tag is the one thing this role never allows elsewhere.
+
+# PIN ME: replace with the current stable release tag before real
+# use. Any modern tag works on compute capability >= 7.5.
+vllm_image: "vllm/vllm-openai:latest"
+
+# Known-good small example model, swap for the target model. On
+# modern GPUs bf16 weights run natively and fp8/int8 quantized
+# checkpoints are supported (Ampere and newer); only Volta is stuck
+# with plain fp16.
+vllm_model: "Qwen/Qwen3-4B-Instruct-2507"
+
+vllm_gpu_memory_utilization: "0.90"
+
+# Empty = omit --max-model-len and let vLLM serve the model's native
+# context length, sizing the KV pool to what fits (V1 behaviour).
+# Set a number only when the context must be capped to fit the card.
+vllm_max_model_len: ""
+
+# Tool calling: enable per model family, e.g. for Qwen:
+#   - "--enable-auto-tool-choice"
+#   - "--tool-call-parser hermes"
+vllm_extra_args: []
+
+# Explicit V1 selection: the engine default from vLLM 0.11 on, and
+# mandatory opt-in here because this repository runs with
+# hash_behaviour=merge, so an empty dict could not clear a V0
+# override coming from anywhere else.
+vllm_env:
+  VLLM_USE_V1: "1"

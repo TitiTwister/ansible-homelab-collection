@@ -1,0 +1,14 @@
+---
+# Main tasks for the dcgm_exporter role
+
+- name: Install container runtime
+  ansible.builtin.import_tasks: install.yml
+
+- name: Configure DCGM exporter service
+  ansible.builtin.import_tasks: configure.yml
+
+- name: Apply configuration changes before verification
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify DCGM exporter deployment
+  ansible.builtin.import_tasks: verify.yml

@@ -1,0 +1,65 @@
+---
+# Docker CE, following the same repository pattern as the vllm and
+# openwebui roles. This role deliberately does not deploy
+# daemon.json: the NVIDIA runtime registration is owned by a GPU role
+# (e.g. vllm). Only the containerd data root is managed here, and it
+# must stay in sync with any other role that templates
+# /etc/containerd/config.toml.
+
+- name: Add Docker CE repository (RHEL)
+  ansible.builtin.yum_repository:
+    name: docker-ce
+    description: Docker CE Stable
+    baseurl: https://download.docker.com/linux/rhel/$releasever/$basearch/stable
+    gpgcheck: true
+    gpgkey: https://download.docker.com/linux/rhel/gpg
+    enabled: true
+  when: ansible_facts.distribution == "RedHat"
+
+- name: Add Docker CE repository (Rocky/Alma/CentOS)
+  ansible.builtin.yum_repository:
+    name: docker-ce
+    description: Docker CE Stable
+    baseurl: https://download.docker.com/linux/centos/$releasever/$basearch/stable
+    gpgcheck: true
+    gpgkey: https://download.docker.com/linux/centos/gpg
+    enabled: true
+  when: ansible_facts.distribution in ["Rocky", "AlmaLinux", "CentOS"]
+
+- name: Install Docker CE
+  ansible.builtin.dnf:
+    name: "{{ __dcgm_exporter_container_packages }}"
+    state: present
+
+- name: Create containerd configuration directory
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy containerd configuration
+  # Docker 28 uses the containerd image store: image layers live in
+  # containerd's data root, not in Docker's data-root. Relocate it to
+  # the data disk - the system volume is too small for multi-GB
+  # images.
+  ansible.builtin.template:
+    src: containerd-config.toml.j2
+    dest: /etc/containerd/config.toml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart containerd
+
+- name: Enable and start containerd
+  ansible.builtin.systemd:
+    name: containerd
+    state: started
+    enabled: true
+
+- name: Enable and start Docker
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true

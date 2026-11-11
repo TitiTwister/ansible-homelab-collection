@@ -1,0 +1,12 @@
+---
+# Main tasks for vllm role. The NVIDIA driver and the Docker/NVIDIA
+# container runtime come from the nvidia_docker meta dependency.
+
+- name: Configure vLLM service
+  ansible.builtin.import_tasks: configure.yml
+
+- name: Apply configuration changes before verification
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify vLLM deployment
+  ansible.builtin.import_tasks: verify.yml

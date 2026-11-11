@@ -1,0 +1,24 @@
+[Unit]
+Description=Open WebUI chat interface ({{ openwebui_image }})
+Documentation=https://docs.openwebui.com/
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+# Remove a stale container left behind by an unclean docker client exit
+ExecStartPre=-/usr/bin/docker rm -f {{ openwebui_container_name }}
+ExecStart=/usr/bin/docker run \
+  --name {{ openwebui_container_name }} \
+  --pull=never \
+  -p {{ openwebui_port }}:8080 \
+  -v {{ openwebui_data_dir }}:/app/backend/data \
+  --env-file {{ openwebui_config_dir }}/openwebui.env \
+  {{ openwebui_image }}
+ExecStop=/usr/bin/docker stop {{ openwebui_container_name }}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

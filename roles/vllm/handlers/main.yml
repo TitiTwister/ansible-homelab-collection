@@ -1,0 +1,13 @@
+---
+# Handlers for vllm role. Driver/container-runtime handlers live in
+# the nvidia_docker dependency.
+
+- name: Restart vllm
+  # Skipped while paused (vllm_state == "stopped"): a restart would
+  # start the service and re-grab the GPU. Configuration changes made
+  # while paused are applied by the next start.
+  ansible.builtin.systemd:
+    name: vllm
+    state: restarted
+    daemon_reload: true
+  when: vllm_state == 'started'

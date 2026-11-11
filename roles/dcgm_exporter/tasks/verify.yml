@@ -1,0 +1,13 @@
+---
+# Verify the deployment: the exporter answers with GPU metrics.
+
+- name: Wait for DCGM exporter to expose GPU metrics
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ dcgm_exporter_port }}/metrics"
+    return_content: true
+  register: dcgm_exporter_metrics
+  until:
+    - dcgm_exporter_metrics.status == 200
+    - "'DCGM_FI_DEV_GPU_UTIL' in dcgm_exporter_metrics.content"
+  retries: 30
+  delay: 10

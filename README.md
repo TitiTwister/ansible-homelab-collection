@@ -16,19 +16,23 @@ example, see [ansible-play-homelab](https://github.com/TitiTwister/ansible-play-
 | `tititwister.homelab.bind` | BIND authoritative DNS (primary/secondary) with RFC2136 dynamic updates |
 | `tititwister.homelab.certificate` | Certbot certificates against a step-ca ACME server |
 | `tititwister.homelab.common` | Base host configuration: DNS resolvers, data disks |
+| `tititwister.homelab.dcgm_exporter` | NVIDIA DCGM exporter for GPU metrics (utilization, memory, temperature, power, ECC) |
 | `tititwister.homelab.firewall` | firewalld rules from inventory data |
 | `tititwister.homelab.grafana` | Grafana with provisioned datasources and dashboards |
 | `tititwister.homelab.haproxy` | HAProxy HTTP/TCP load balancer with TLS |
 | `tititwister.homelab.k8s` | Kubernetes cluster (kubeadm): control plane, workers, addons |
 | `tititwister.homelab.loki` | Loki log aggregation, single binary with filesystem storage |
 | `tititwister.homelab.node_exporter` | Prometheus node_exporter |
+| `tititwister.homelab.nvidia_docker` | NVIDIA driver (CUDA repo, DKMS) + Docker CE + NVIDIA Container Toolkit — shared GPU host runtime |
 | `tititwister.homelab.openvpn` | OpenVPN server with per-client configurations |
+| `tititwister.homelab.openwebui` | Open WebUI chat interface for OpenAI-compatible backends (vLLM) |
 | `tititwister.homelab.postgres_exporter` | Prometheus postgres_exporter |
 | `tititwister.homelab.postgresql` | PostgreSQL HA cluster (Patroni + etcd) with TLS |
 | `tititwister.homelab.prometheus` | Prometheus + Alertmanager with Telegram alerting |
 | `tititwister.homelab.promtail` | Promtail journald shipper for Loki |
 | `tititwister.homelab.pushgateway` | Prometheus Pushgateway for batch job metrics |
 | `tititwister.homelab.step_ca` | step-ca PKI: offline root/intermediate CA and online CA server |
+| `tititwister.homelab.vllm` | vLLM OpenAI-compatible LLM server on GPU hosts (Docker, systemd) |
 | `tititwister.homelab.wireguard` | WireGuard server with generated keys and self-contained client configurations |
 
 ## Requirements

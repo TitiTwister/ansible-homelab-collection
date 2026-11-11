@@ -1,0 +1,7 @@
+version = 2
+
+# Image store on the data disk: Docker 28 uses the containerd image
+# store, so image layers live in containerd's root rather than in
+# Docker's data-root. The system volume is too small for multi-GB
+# images.
+root = "{{ openwebui_containerd_root }}"

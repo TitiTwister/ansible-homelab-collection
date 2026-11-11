@@ -1,0 +1,88 @@
+---
+# vLLM service: profile-selected container image and serving
+# arguments, HuggingFace cache on the data disk, systemd-managed
+# container.
+
+- name: Validate vLLM profile selection
+  # Fail fast with the list of usable profiles when vllm_profile has
+  # a typo, instead of a cryptic file-not-found from include_vars.
+  ansible.builtin.assert:
+    that: vllm_profile in __vllm_available_profiles
+    fail_msg: >-
+      Unknown vllm_profile '{{ vllm_profile }}'. Available profiles:
+      {{ __vllm_available_profiles | join(', ') }} (see the role's
+      vars/profiles/ directory).
+
+- name: Load vLLM serving profile
+  # The relative path resolves against the role vars/ directory.
+  # include_vars precedence sits above group_vars: profile values
+  # override anything set there, so per-combo tuning belongs in the
+  # profile file and ad-hoc overrides go through -e.
+  ansible.builtin.include_vars:
+    file: "profiles/{{ vllm_profile }}.yml"
+
+- name: Create vLLM configuration directory
+  ansible.builtin.file:
+    path: "{{ vllm_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create HuggingFace cache directory
+  ansible.builtin.file:
+    path: "{{ vllm_hf_cache_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy vLLM container environment file
+  ansible.builtin.template:
+    src: vllm.env.j2
+    dest: "{{ vllm_config_dir }}/vllm.env"
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart vllm
+
+- name: Pull the vLLM image
+  # Layer downloads from Docker Hub are prone to transient connection
+  # resets; docker resumes already-downloaded layers on retry.
+  ansible.builtin.command:
+    cmd: docker pull {{ vllm_image }}
+  register: vllm_image_pull
+  until: vllm_image_pull.rc == 0
+  retries: 5
+  delay: 30
+  changed_when: "'Downloaded newer image' in vllm_image_pull.stdout"
+
+- name: Deploy vLLM systemd service
+  ansible.builtin.template:
+    src: vllm.service.j2
+    dest: /etc/systemd/system/vllm.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart vllm
+
+- name: Manage vLLM service state
+  # "stopped" pauses vLLM and frees the GPU: the unit is also disabled
+  # so a reboot does not re-grab it. Handlers are gated the same way,
+  # so configuration changes made while paused apply on the next start.
+  ansible.builtin.systemd:
+    name: vllm
+    state: "{{ vllm_state }}"
+    enabled: "{{ vllm_state == 'started' }}"
+    daemon_reload: true
+
+- name: Clear residual failed state on the paused unit
+  # Symmetric with ComfyUI: keep "stopped" meaning clean-stopped even
+  # if a container exit code ever slips past SuccessExitStatus.
+  # reset-failed is idempotent and only runs while paused.
+  ansible.builtin.command:
+    cmd: systemctl reset-failed vllm
+  register: vllm_reset_failed
+  when: vllm_state == 'stopped'
+  changed_when: false
+  failed_when: vllm_reset_failed.rc not in [0, 1]

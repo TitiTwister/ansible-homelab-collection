@@ -1,0 +1,11 @@
+---
+# Internal constants for the openwebui role
+
+# Docker CE only: the NVIDIA Container Toolkit is not needed for this
+# CPU-only workload. This role does not deploy daemon.json, so a GPU
+# role (e.g. vllm) that already registered the nvidia runtime keeps
+# owning it.
+__openwebui_container_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io

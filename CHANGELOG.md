@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.3.0 (2026-09-19)
+
+AI/LLM serving stack on GPU hosts.
+
+### Added
+- `nvidia_docker`: new role — GPU host runtime shared by the GPU
+  workload roles: NVIDIA driver from the CUDA repository (DKMS),
+  Docker CE with the NVIDIA Container Toolkit, containerd image store
+  on the data disk.
+- `vllm`: new role — vLLM OpenAI-compatible API server (official
+  image, systemd unit), with serving parameters grouped in
+  battle-tested GPU+model profiles selected by `vllm_profile`.
+- `openwebui`: new role — Open WebUI self-hosted chat interface for
+  OpenAI-compatible backends, in front of a vLLM server.
+- `dcgm_exporter`: new role — NVIDIA DCGM exporter exposing GPU
+  metrics for Prometheus (utilization, memory, temperature, power,
+  clocks, ECC/XID errors).
+
 ## v1.2.1 (2026-09-15)
 
 PostgreSQL Extensions support.

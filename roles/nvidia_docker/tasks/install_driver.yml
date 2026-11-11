@@ -1,0 +1,129 @@
+---
+# NVIDIA driver from the CUDA repository. EPEL 10 does not ship the
+# akmod-nvidia packages used on EL9, so the driver comes from NVIDIA's
+# own repository: the proprietary DKMS kmod (the open variant does not
+# support Volta) is built against the running kernel at install time
+# and only loads at boot - a fresh install needs exactly one reboot
+# before nvidia-smi works.
+
+- name: Check whether the NVIDIA kernel module is loaded
+  ansible.builtin.stat:
+    path: /proc/driver/nvidia/version
+  register: nvidia_docker_driver_loaded
+
+- name: Fresh driver install
+  when: not nvidia_docker_driver_loaded.stat.exists
+  block:
+    - name: Install EPEL release
+      # Provides the dkms build tool required by the NVIDIA kmod package.
+      ansible.builtin.dnf:
+        name: epel-release
+        state: present
+
+    - name: Add NVIDIA CUDA repository
+      ansible.builtin.yum_repository:
+        name: "{{ __nvidia_docker_cuda_repo_id }}"
+        description: NVIDIA CUDA Repository
+        baseurl: "{{ __nvidia_docker_cuda_repo_baseurl }}"
+        gpgcheck: true
+        gpgkey: "{{ __nvidia_docker_cuda_repo_gpgkey }}"
+        enabled: true
+
+    - name: Read the running kernel version
+      # Queried live rather than taken from gathered facts: the fact
+      # cache can hold the kernel from before a reboot.
+      ansible.builtin.command:
+        cmd: uname -r
+      register: nvidia_docker_running_kernel
+      changed_when: false
+
+    - name: Gather installed package facts
+      ansible.builtin.package_facts:
+        manager: rpm
+
+    - name: Remove an installed driver from another branch
+      # A plain downgrade cannot resolve: the installed newer branch
+      # carries Obsoletes headers that exclude the legacy packages
+      # (e.g. 610 obsoletes libnvidia-cfg < 610, blocking 580).
+      # Removing first - a no-op on a fresh host - lets the pinned
+      # install resolve cleanly.
+      ansible.builtin.dnf:
+        name:
+          - "nvidia-driver*"
+          - "kmod-nvidia*"
+          - "libnvidia-*"
+          - nvidia-modprobe
+          - nvidia-persistenced
+          - nvidia-settings
+        state: absent
+      when: "'nvidia-driver-common' in ansible_facts.packages"
+
+    - name: Install NVIDIA driver packages
+      # allow_downgrade: the pin moves backwards when a newer branch was
+      # installed before a legacy-GPU pin (e.g. 610 -> 580 for Volta).
+      ansible.builtin.dnf:
+        name: "{{ __nvidia_docker_driver_packages + ['kernel-devel-' ~ nvidia_docker_running_kernel.stdout] }}"
+        state: present
+        allow_downgrade: true
+
+    - name: Blacklist the nouveau kernel module
+      ansible.builtin.copy:
+        dest: /etc/modprobe.d/blacklist-nouveau.conf
+        content: |
+          blacklist nouveau
+          options nouveau modeset=0
+        owner: root
+        group: root
+        mode: "0644"
+      register: nvidia_docker_nouveau_blacklist
+
+    - name: Rebuild initramfs with the nouveau blacklist  # noqa: no-handler
+      # The blacklist must be in the initramfs before the reboot below
+      # so nouveau cannot grab the GPU during early boot; a handler
+      # would flush after the reboot, too late.
+      ansible.builtin.command:
+        cmd: dracut -f
+      when: nvidia_docker_nouveau_blacklist.changed
+      changed_when: true
+
+    - name: Reboot to load the freshly built driver
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+      when: nvidia_docker_driver_allow_reboot | bool
+
+    - name: Refuse to continue without a reboot
+      ansible.builtin.fail:
+        msg: >-
+          The NVIDIA driver was installed but needs a reboot to load.
+          Set nvidia_docker_driver_allow_reboot: true, or reboot manually
+          and re-run the play.
+      when: not (nvidia_docker_driver_allow_reboot | bool)
+
+- name: Assert the NVIDIA driver is loaded
+  ansible.builtin.stat:
+    path: /proc/driver/nvidia/version
+  register: nvidia_docker_driver_after
+
+- name: Fail when the driver did not load
+  ansible.builtin.assert:
+    that: nvidia_docker_driver_after.stat.exists
+    fail_msg: >-
+      The NVIDIA kernel module is not loaded (/proc/driver/nvidia/version
+      absent). Check that the GPU is passed through to the host, that
+      nouveau is blacklisted, and that the DKMS build succeeded
+      (/var/lib/dkms).
+
+- name: Query GPU persistence mode
+  ansible.builtin.command:
+    cmd: nvidia-smi --query-gpu=persistence_mode --format=csv,noheader
+  register: nvidia_docker_persistence_mode
+  changed_when: false
+
+- name: Enable GPU persistence mode
+  # Keeps the GPU initialized between GPU workload restarts; re-applied
+  # at every run since the setting is not persistent across reboots.
+  # Guarded by the query above: only runs when persistence is off.
+  ansible.builtin.command:
+    cmd: nvidia-smi -pm 1
+  when: "'Disabled' in nvidia_docker_persistence_mode.stdout"
+  changed_when: true

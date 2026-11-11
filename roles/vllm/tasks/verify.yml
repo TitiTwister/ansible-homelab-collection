@@ -1,0 +1,30 @@
+---
+# Verify the deployment end to end: the driver sees the GPU, and the
+# OpenAI-compatible API answers with the configured model. The first
+# start downloads the model weights (several GB) before serving, hence
+# the generous wait.
+
+- name: Report the GPU seen by the driver
+  ansible.builtin.command:
+    cmd: nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+  register: vllm_gpu_info
+  changed_when: false
+  failed_when: vllm_gpu_info.rc != 0
+
+- name: Show detected GPU
+  ansible.builtin.debug:
+    msg: "vLLM GPU: {{ vllm_gpu_info.stdout_lines | join(', ') }}"
+
+- name: Wait for vLLM to serve the configured model
+  # Skipped while paused (vllm_state == "stopped"): nothing listens on
+  # the API port and the GPU stays free.
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ vllm_port }}/v1/models"
+    return_content: true
+  register: vllm_models
+  until:
+    - vllm_models.status == 200
+    - vllm_served_model_name in vllm_models.content
+  retries: 120
+  delay: 10
+  when: vllm_state == 'started'

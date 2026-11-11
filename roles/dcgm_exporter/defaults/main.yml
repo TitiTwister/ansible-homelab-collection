@@ -1,0 +1,18 @@
+---
+# Default variables for the dcgm_exporter role
+
+# DCGM exporter release, pinned (tag format: <exporter>-<DCGM>)
+dcgm_exporter_image: "nvcr.io/nvidia/k8s/dcgm-exporter:4.6.0-4.8.3-distroless"
+
+# Metrics port (published by the container; the exporter listens on
+# 9400 inside)
+dcgm_exporter_port: 9400
+
+# containerd data root (Docker 28 image store). Multi-GB images do
+# not fit the system volume: put it on the same data disk as the
+# model cache. Keep it in sync with any other role managing the
+# container runtime on the same host (e.g. vllm).
+dcgm_exporter_containerd_root: /srv/containerd
+
+# Fixed container name used by the systemd unit
+dcgm_exporter_container_name: dcgm-exporter

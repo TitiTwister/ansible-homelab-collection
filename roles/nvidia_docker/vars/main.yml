@@ -1,0 +1,31 @@
+---
+# Internal constants for nvidia_docker role
+
+# NVIDIA CUDA repository: driver packages for EL. EPEL 10 no longer
+# ships the akmod-nvidia packages used on EL9, so the driver comes from
+# NVIDIA's own repository, whose DKMS kmod builds against the running
+# kernel. Paths and signing keys differ per major release.
+__nvidia_docker_cuda_repo_id: "cuda-rhel{{ ansible_facts.distribution_major_version }}-x86_64"
+__nvidia_docker_cuda_repo_baseurl: "https://developer.download.nvidia.com/compute/cuda/repos/rhel{{ ansible_facts.distribution_major_version }}/$basearch"
+__nvidia_docker_cuda_repo_gpgkey: >-
+  {{ __nvidia_docker_cuda_repo_baseurl }}/{{
+    {'9': 'D42D0685', '10': 'CDF6BA43'}[ansible_facts.distribution_major_version]
+  }}.pub
+
+# Driver packages: nvidia-driver-cuda is the userland meta, pinned to
+# the same version as the proprietary kmod (kmod-nvidia-latest-dkms).
+# dkms comes from EPEL; kernel-devel must match the running kernel and
+# is resolved from a live uname -r at task time.
+__nvidia_docker_driver_packages:
+  - "nvidia-driver-cuda-{{ nvidia_docker_driver_version }}"
+  - "kmod-nvidia-latest-dkms-{{ nvidia_docker_driver_version }}"
+  - dkms
+  - gcc
+  - make
+
+# Docker CE plus the NVIDIA Container Toolkit (nvidia.github.io repo)
+__nvidia_docker_container_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - nvidia-container-toolkit

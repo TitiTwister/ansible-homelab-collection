@@ -1,0 +1,13 @@
+---
+# Internal constants for the vllm role - do not override.
+
+# Serving profiles shipped with the role (vars/profiles/*.yml), used
+# to validate the vllm_profile selection with a helpful error. The
+# fileglob runs on the controller; role_path points into the
+# collection install even for collection roles.
+__vllm_available_profiles: >-
+  {{ query('ansible.builtin.fileglob', role_path ~ '/vars/profiles/*.yml')
+     | map('basename')
+     | map('regex_replace', '[.]yml$', '')
+     | sort
+     | list }}

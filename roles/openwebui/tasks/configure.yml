@@ -1,0 +1,55 @@
+---
+# Open WebUI service: pinned container image, SQLite data on the data
+# disk, systemd-managed container.
+
+- name: Create Open WebUI configuration directory
+  ansible.builtin.file:
+    path: "{{ openwebui_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create Open WebUI data directory
+  ansible.builtin.file:
+    path: "{{ openwebui_data_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy Open WebUI container environment file
+  ansible.builtin.template:
+    src: openwebui.env.j2
+    dest: "{{ openwebui_config_dir }}/openwebui.env"
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart openwebui
+
+- name: Pull the Open WebUI image
+  # Layer downloads from ghcr.io are prone to transient connection
+  # resets; docker resumes already-downloaded layers on retry.
+  ansible.builtin.command:
+    cmd: docker pull {{ openwebui_image }}
+  register: openwebui_image_pull
+  until: openwebui_image_pull.rc == 0
+  retries: 5
+  delay: 30
+  changed_when: "'Downloaded newer image' in openwebui_image_pull.stdout"
+
+- name: Deploy Open WebUI systemd service
+  ansible.builtin.template:
+    src: openwebui.service.j2
+    dest: /etc/systemd/system/openwebui.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart openwebui
+
+- name: Enable and start Open WebUI
+  ansible.builtin.systemd:
+    name: openwebui
+    state: started
+    enabled: true
+    daemon_reload: true

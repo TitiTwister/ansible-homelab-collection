@@ -1,0 +1,39 @@
+[Unit]
+Description=vLLM OpenAI-compatible server ({{ vllm_model }})
+Documentation=https://docs.vllm.ai/
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+# Remove a stale container left behind by an unclean docker client exit
+ExecStartPre=-/usr/bin/docker rm -f {{ vllm_container_name }}
+ExecStart=/usr/bin/docker run \
+  --name {{ vllm_container_name }} \
+  --runtime nvidia \
+  --gpus all \
+  --ipc=host \
+  --pull=never \
+  -p {{ vllm_port }}:{{ vllm_port }} \
+  -v {{ vllm_hf_cache_dir }}:/root/.cache/huggingface \
+  --env-file {{ vllm_config_dir }}/vllm.env \
+  {{ vllm_image }} \
+  --model {{ vllm_model }} \
+  --served-model-name {{ vllm_served_model_name }} \
+  --port {{ vllm_port }} \
+  --gpu-memory-utilization {{ vllm_gpu_memory_utilization }} \
+{% if vllm_max_model_len | default('', true) | string | length > 0 %}
+  --max-model-len {{ vllm_max_model_len }} \
+{% endif %}
+  {{ vllm_extra_args | join(' ') }}
+ExecStop=/usr/bin/docker stop {{ vllm_container_name }}
+# docker run exits with the container's code when it stops (143 on
+# SIGTERM, 137 on SIGKILL); treat those as success so a pause flip
+# never leaves the unit in "failed" state.
+SuccessExitStatus=143 137
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

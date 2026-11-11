@@ -1,0 +1,14 @@
+---
+# Main tasks for the openwebui role
+
+- name: Install container runtime
+  ansible.builtin.import_tasks: install.yml
+
+- name: Configure Open WebUI service
+  ansible.builtin.import_tasks: configure.yml
+
+- name: Apply configuration changes before verification
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify Open WebUI deployment
+  ansible.builtin.import_tasks: verify.yml

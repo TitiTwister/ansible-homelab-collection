@@ -1,0 +1,26 @@
+[Unit]
+Description=NVIDIA DCGM exporter ({{ dcgm_exporter_image }})
+Documentation=https://github.com/NVIDIA/dcgm-exporter
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+# Remove a stale container left behind by an unclean docker client exit
+ExecStartPre=-/usr/bin/docker rm -f {{ dcgm_exporter_container_name }}
+# SYS_ADMIN is required by DCGM for NVML host engine operations
+ExecStart=/usr/bin/docker run \
+  --name {{ dcgm_exporter_container_name }} \
+  --runtime nvidia \
+  --gpus all \
+  --cap-add SYS_ADMIN \
+  --pull=never \
+  -p {{ dcgm_exporter_port }}:9400 \
+  {{ dcgm_exporter_image }}
+ExecStop=/usr/bin/docker stop {{ dcgm_exporter_container_name }}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

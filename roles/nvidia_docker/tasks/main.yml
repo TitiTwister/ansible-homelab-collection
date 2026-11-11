@@ -1,0 +1,8 @@
+---
+# Main tasks for nvidia_docker role
+
+- name: Install NVIDIA driver
+  ansible.builtin.import_tasks: install_driver.yml
+
+- name: Install container runtime
+  ansible.builtin.import_tasks: install_container.yml

@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: vllm
+  namespace: tititwister
+  author: TitiTwister
+  description: vLLM OpenAI-compatible LLM server on an NVIDIA GPU host (Docker, systemd)
+  license: Beerware
+  min_ansible_version: "2.18"
+  platforms:
+    - name: EL
+      versions: ["9", "10"]
+  galaxy_tags: [ai, llm, vllm, nvidia]
+dependencies:
+  - role: tititwister.homelab.nvidia_docker

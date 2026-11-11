@@ -1,0 +1,13 @@
+---
+galaxy_info:
+  role_name: nvidia_docker
+  namespace: tititwister
+  author: TitiTwister
+  description: NVIDIA driver (CUDA repo, DKMS) + Docker CE + NVIDIA Container Toolkit
+  license: Beerware
+  min_ansible_version: "2.18"
+  platforms:
+    - name: EL
+      versions: ["9", "10"]
+  galaxy_tags: [nvidia, gpu, docker, cuda]
+dependencies: []

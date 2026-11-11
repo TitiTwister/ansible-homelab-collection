@@ -1,0 +1,19 @@
+---
+# Default variables for nvidia_docker role
+
+# NVIDIA driver version, pinned to the 580 legacy branch: the last one
+# supporting Volta (V100). Newer branches install fine but ignore the
+# GPU at runtime ("supported through the NVIDIA 580.xx Legacy drivers"),
+# even though their README still lists the V100. 580.178.04 is the
+# final 580 release published in the CUDA repository.
+nvidia_docker_driver_version: "580.178.04"
+
+# Reboot the host when a freshly installed NVIDIA driver needs a boot
+# to load (one-time, on first deployment). When false the role fails
+# with a clear message instead of rebooting.
+nvidia_docker_driver_allow_reboot: true
+
+# containerd data root (Docker 28 image store). Multi-GB CUDA images
+# do not fit the system volume: put it on a data disk mounted with
+# the common role `disks` mechanism.
+nvidia_docker_containerd_root: /srv/containerd

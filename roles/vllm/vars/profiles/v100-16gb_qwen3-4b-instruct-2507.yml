@@ -1,0 +1,54 @@
+---
+# Serving profile: Tesla V100-PCIE-16GB (Volta, compute capability
+# 7.0) + Qwen/Qwen3-4B-Instruct-2507, vLLM 0.10.2.
+#
+# Every value below was tuned for this exact GPU/model/engine combo -
+# read the notes before changing anything. Selected via vllm_profile.
+
+# Pinned to the 0.10 line: the last release family that supports
+# Volta GPUs through the V0 engine. V1 - the only engine from 0.11
+# on - requires compute capability >= 7.5, so this pin must not be
+# bumped on Volta hardware.
+vllm_image: "vllm/vllm-openai:v0.10.2"
+
+# On Volta only fp16 weights run (no bf16, fp8 or Marlin quantized
+# kernels), so the model must fit the GPU at 2 bytes/parameter:
+# ~8 GB fp16 weights on the 16 GB card, leaving ~6 GB of KV cache
+# within the memory budget.
+vllm_model: "Qwen/Qwen3-4B-Instruct-2507"
+
+vllm_gpu_memory_utilization: "0.90"
+
+# V100 16GB fp16, V0 engine (VLLM_USE_V1=0 below): the KV pool
+# SHRINKS as max_model_len grows past ~24k, because V0 sizes its
+# activation profile from max_model_len. Measured pools: ~36.6k
+# tokens at 16384, ~34.2k at 24576 (this setting), 29,696 at 32768 -
+# 32k fails startup validation, do not retry. DO NOT add
+# --enable-chunked-prefill on this build: it shrinks the startup
+# profile (~0.4 GiB) and hands that memory to the KV pool, but the
+# XFormers/Triton attention path needs it at runtime - the first real
+# prefill OOMs (tried at util 0.90/4096-token chunks and 0.87/2048).
+# After any change here, check the boot-time "Maximum concurrency for
+# N tokens per request" line in journalctl -u vllm to see the real
+# pool.
+vllm_max_model_len: 24576
+
+# Open WebUI sends tool_choice=auto by default; vLLM refuses it
+# unless tool calling is enabled. hermes is the parser for
+# Qwen-family models.
+# DO NOT add --enable-prefix-caching or --enable-chunked-prefill on
+# this build (vLLM 0.10.2, V0 engine, XFormers on Volta): both OOM at
+# runtime with "Triton Error [CUDA]: out of memory" because their
+# attention paths need GPU workspace the startup profile does not
+# reserve. Prefix caching: cold requests work, cache-HIT requests
+# OOM. Chunked prefill: the first real prefill OOMs. Revisit only
+# after a vLLM upgrade or a switch to the V1 engine (see the comment
+# on max_model_len above).
+vllm_extra_args:
+  - "--enable-auto-tool-choice"
+  - "--tool-call-parser hermes"
+
+# VLLM_USE_V1=0 selects the V0 engine, mandatory on Volta (compute
+# capability 7.0).
+vllm_env:
+  VLLM_USE_V1: "0"

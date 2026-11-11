@@ -1,0 +1,43 @@
+---
+# Default variables for the openwebui role
+
+# Open WebUI release, pinned
+openwebui_image: "ghcr.io/open-webui/open-webui:v0.11.3"
+
+# Web UI port, published by the container (the app listens on 8080
+# inside)
+openwebui_port: 8080
+
+# OpenAI-compatible backend (e.g. a vLLM server), as seen from INSIDE
+# the container: the host's loopback is not reachable from there. The
+# default assumes colocation with the vllm role and targets the host
+# hostname over the published vllm port. vLLM ignores the key, but
+# Open WebUI requires one to be set.
+openwebui_openai_base_url: "http://{{ ansible_facts.hostname }}:8000/v1"
+openwebui_openai_api_key: "sk-openwebui"
+
+# Local accounts and chat history live in a SQLite database inside
+# this directory (mounted at /app/backend/data). Put it on a data
+# disk mounted with the common role `disks` mechanism.
+openwebui_data_dir: /srv/openwebui/data
+
+# Configuration directory holding the container environment file
+openwebui_config_dir: /etc/openwebui
+
+# containerd data root (Docker 28 image store). Multi-GB images do
+# not fit the system volume: put it on the same data disk as
+# openwebui_data_dir. Keep it in sync with any other role managing
+# the container runtime on the same host (e.g. vllm).
+openwebui_containerd_root: /srv/containerd
+
+# Allow account self-registration. The first account created becomes
+# the administrator; flip to false (or use the admin panel) to lock
+# the instance down.
+openwebui_enable_signup: true
+
+# Extra container environment entries, appended verbatim to the env
+# file (e.g. WEBUI_SECRET_KEY, RAG settings)
+openwebui_env: {}
+
+# Fixed container name used by the systemd unit
+openwebui_container_name: openwebui

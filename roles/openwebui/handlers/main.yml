@@ -1,0 +1,21 @@
+---
+# Handlers for the openwebui role. Order matters: containerd before
+# docker (docker depends on it), docker before openwebui.
+
+- name: Restart containerd
+  ansible.builtin.systemd:
+    name: containerd
+    state: restarted
+    daemon_reload: true
+
+- name: Restart docker
+  ansible.builtin.systemd:
+    name: docker
+    state: restarted
+    daemon_reload: true
+
+- name: Restart openwebui
+  ansible.builtin.systemd:
+    name: openwebui
+    state: restarted
+    daemon_reload: true
