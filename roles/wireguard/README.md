@@ -3,7 +3,9 @@
 Installs and configures a WireGuard server. Generates server and client
 keypairs on the server (idempotently, only when absent) and self-contained
 client `.conf` files on the controller. No PKI is involved: WireGuard peers
-authenticate with raw Curve25519 public keys.
+authenticate with raw Curve25519 public keys. Static site-to-site peers
+(routed tunnels to remote gateways) can be configured alongside the
+roaming clients through `wireguard_site_peers`.
 
 Runs happily alongside other VPN servers (e.g. the `openvpn` role) on the
 same host: use a distinct UDP port and a distinct /24 subnet per VPN.
@@ -24,6 +26,7 @@ same host: use a distinct UDP port and a distinct /24 subnet per VPN.
 | `wireguard_port` | `51820` | UDP listening port. |
 | `wireguard_server_address` | `10.9.0.1/24` | Server interface address. /24 subnets only. |
 | `wireguard_clients` | `[client1, client2]` | Client names to configure. |
+| `wireguard_site_peers` | `[]` | Static site-to-site peers — see below. |
 | `wireguard_dns` | `[8.8.8.8, 8.8.4.4]` | DNS servers pushed to clients. |
 | `wireguard_client_allowed_ips` | `[0.0.0.0/0]` | Routes routed through the tunnel (full tunnel by default). |
 | `wireguard_persistent_keepalive` | `25` | Client keepalive interval in seconds. |
@@ -50,6 +53,34 @@ wireguard_server_address: "10.9.0.1/24"
 wireguard_server_public_ip: "198.51.100.1"
 wireguard_client_config_dir: "/path/to/files/wireguard"
 ```
+
+## Site-to-Site Peers
+
+`wireguard_site_peers` adds routed tunnels to remote gateways (another
+WireGuard server, an OPNsense appliance, …) next to the roaming clients.
+Each entry is rendered as one `[Peer]` in the server config with the
+networks of `allowed_ips` routed to it; no keypair is generated on the
+server and no `.conf` is produced on the controller — the remote side
+owns its private key and configuration.
+
+```yaml
+wireguard_site_peers:
+  - name: remote-gw            # comment in the server config
+    ip: 10.9.0.10              # the peer's address inside the VPN /24
+    public_key: "rM...="       # the peer's WireGuard public key
+    allowed_ips:               # networks routed to the peer
+      - "10.9.0.10/32"
+      - "192.168.1.0/24"
+```
+
+`allowed_ips` defaults to `[ip/32]` (the roaming-client behaviour) when
+omitted. Site peers share the VPN /24 with the roaming clients: pick a
+tunnel IP beyond the client range (the server holds `.1`, clients take
+`.2`, `.3`, …) so later additions to `wireguard_clients` cannot collide.
+
+NAT is not performed for site peers: traffic from `allowed_ips` leaves
+with its real source addresses, so the networks behind the peer need a
+return route (or their own masquerade) on the other side.
 
 ## Notes
 

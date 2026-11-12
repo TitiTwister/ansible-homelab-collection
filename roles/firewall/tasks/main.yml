@@ -6,3 +6,11 @@
 
 - name: Include configure tasks
   ansible.builtin.include_tasks: configure.yml
+
+- name: Include custom zone tasks
+  ansible.builtin.include_tasks: zones.yml
+  when: firewall_zones | length > 0
+
+- name: Include policy tasks
+  ansible.builtin.include_tasks: policies.yml
+  when: firewall_policies | length > 0

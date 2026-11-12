@@ -10,3 +10,27 @@ firewall_default_zone: "public"
 
 # Enable IP forwarding (required for VPN routing / masquerade)
 firewall_ip_forward: false
+
+# Custom firewalld zones to create (zones that do not ship with firewalld).
+# Each item is a zone name plus an optional interface to bind to it, e.g.
+# the WireGuard tunnel zone on home-eu-ovpn:
+#   firewall_zones:
+#     - name: tunnel
+#       interface: wg0
+firewall_zones: []
+
+# Firewalld policies: allow forwarding between zone pairs that do not
+# share a zone. Each item carries the policy name, its ingress and egress
+# zones, optional rich rules and an optional masquerade flag (SNATs to
+# the egress interface), e.g. the transit policies on home-eu-ovpn:
+#   firewall_policies:
+#     - name: public-to-tunnel
+#       ingress_zones: [public]
+#       egress_zones: [tunnel]
+#       rich_rules:
+#         - 'rule family=ipv4 source address=10.111.100.200 protocol value=icmp accept'
+#     - name: tunnel-to-public
+#       ingress_zones: [tunnel]
+#       egress_zones: [public]
+#       masquerade: true
+firewall_policies: []

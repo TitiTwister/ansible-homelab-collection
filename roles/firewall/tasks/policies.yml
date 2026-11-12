@@ -1,0 +1,133 @@
+---
+# Firewalld policies: allow forwarding between zone pairs that do not
+# share a zone (e.g. the public -> tunnel transit policy on home-eu-ovpn).
+# Only permanent configuration is written; the Reload firewalld handler
+# activates it at the end of the play. Presence-only, like the rest of
+# the role: removing an entry does not delete the policy.
+#
+# firewalld query commands exit 0 when the setting is present and 1 when
+# it is not, so the check tasks run with failed_when: false and the apply
+# tasks run on rc != 0. The check tasks also set check_mode: false: they
+# are read-only queries, and command tasks are skipped in --check runs
+# by default, which would leave the rc conditions below undefined.
+
+- name: List permanent firewalld policies
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - --get-policies
+  register: firewall_permanent_policies
+  changed_when: false
+  check_mode: false
+
+- name: Create firewalld policies
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - --new-policy={{ item.name }}
+  loop: "{{ firewall_policies }}"
+  when: item.name not in firewall_permanent_policies.stdout.split()
+  changed_when: true
+  notify: Reload firewalld
+
+- name: Check policy ingress zones
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - --policy={{ item.0.name }}
+      - --query-ingress-zone={{ item.1 }}
+  loop: "{{ firewall_policies | subelements('ingress_zones', skip_missing=true) }}"
+  register: firewall_policy_ingress_check
+  failed_when: false
+  changed_when: false
+  check_mode: false
+
+- name: Add policy ingress zones
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - --policy={{ item.item.0.name }}
+      - --add-ingress-zone={{ item.item.1 }}
+  loop: "{{ firewall_policy_ingress_check.results }}"
+  when: item.rc != 0
+  changed_when: true
+  notify: Reload firewalld
+
+- name: Check policy egress zones
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - --policy={{ item.0.name }}
+      - --query-egress-zone={{ item.1 }}
+  loop: "{{ firewall_policies | subelements('egress_zones', skip_missing=true) }}"
+  register: firewall_policy_egress_check
+  failed_when: false
+  changed_when: false
+  check_mode: false
+
+- name: Add policy egress zones
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - --policy={{ item.item.0.name }}
+      - --add-egress-zone={{ item.item.1 }}
+  loop: "{{ firewall_policy_egress_check.results }}"
+  when: item.rc != 0
+  changed_when: true
+  notify: Reload firewalld
+
+- name: Check policy rich rules
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - --policy={{ item.0.name }}
+      - --query-rich-rule={{ item.1 }}
+  loop: "{{ firewall_policies | subelements('rich_rules', skip_missing=true) }}"
+  register: firewall_policy_rich_rule_check
+  failed_when: false
+  changed_when: false
+  check_mode: false
+
+- name: Add policy rich rules
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - --policy={{ item.item.0.name }}
+      - --add-rich-rule={{ item.item.1 }}
+  loop: "{{ firewall_policy_rich_rule_check.results }}"
+  when: item.rc != 0
+  changed_when: true
+  notify: Reload firewalld
+
+- name: Check policy masquerade
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - --policy={{ item.name }}
+      - --query-masquerade
+  loop: "{{ firewall_policies | selectattr('masquerade', 'defined') | selectattr('masquerade') | list }}"
+  register: firewall_policy_masquerade_check
+  failed_when: false
+  changed_when: false
+  check_mode: false
+
+- name: Enable policy masquerade
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - --policy={{ item.item.name }}
+      - --add-masquerade
+  loop: "{{ firewall_policy_masquerade_check.results }}"
+  when: item.rc != 0
+  changed_when: true
+  notify: Reload firewalld

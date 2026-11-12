@@ -1,5 +1,36 @@
 # Changelog
 
+## v1.4.0 (2026-11-11)
+
+Site-to-site WireGuard peers and the firewalld transit policy they need.
+
+### Added
+- `wireguard`: `wireguard_site_peers` — static routed peers alongside
+  the roaming clients. Each entry brings its own public key, an explicit
+  tunnel IP in the server /24 and optional `allowed_ips` networks routed
+  to it; rendered into the server config with no server-side key
+  generation and no client `.conf` on the controller.
+- `firewall`: `firewall_zones` and `firewall_policies` — custom zone
+  creation with optional interface binding, and firewalld policies for
+  forwarding between zone pairs that do not share a zone (ingress/egress
+  zones, rich rules and optional per-policy masquerade). Drives the
+  WireGuard site-to-site transit on home-eu-ovpn: a `tunnel` zone for
+  wg0 plus the two scoped policies (`public-to-tunnel` unmasqueraded so
+  VPC-to-home traffic keeps its real source, `tunnel-to-public`
+  masqueraded to the staged-NAT model), so transit works in both
+  directions instead of being rejected by firewalld's zone-pair
+  dispatch.
+
+### Fixed
+- `firewall`: `firewall_zones` creation goes through
+  `ansible.posix.firewalld` (`state: present`, the module's zone-level
+  operation) instead of raw `firewall-cmd --new-zone` — idempotent,
+  check-mode aware, one task less.
+- `firewall`: the read-only `firewall-cmd` queries behind
+  `firewall_policies` now run with `check_mode: false` — command tasks
+  are skipped in `--check` runs by default, which left the rc-based
+  apply conditions undefined and broke `--check`.
+
 ## v1.3.0 (2026-09-19)
 
 AI/LLM serving stack on GPU hosts.

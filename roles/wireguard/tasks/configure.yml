@@ -79,7 +79,8 @@
     __wireguard_subnet_prefix: "{{ wireguard_server_address.split('.')[0:3] | join('.') }}"
 
 # Clients are numbered from .2 in wireguard_clients list order,
-# after the server on .1.
+# after the server on .1. Site peers carry their explicit tunnel IP
+# and optional allowed_ips (networks routed to them).
 - name: Assemble WireGuard peer facts
   ansible.builtin.set_fact:
     __wireguard_peers: >-
@@ -90,6 +91,13 @@
         'name': client,
         'public_key': pubkey | trim,
         'ip': __wireguard_subnet_prefix ~ '.' ~ (loop.index + 1)}) -%}
+      {%- endfor -%}
+      {%- for peer in wireguard_site_peers -%}
+      {%- set _ = peers.append({
+        'name': peer['name'],
+        'public_key': peer['public_key'],
+        'ip': peer['ip'],
+        'allowed_ips': peer['allowed_ips'] | default([])}) -%}
       {%- endfor -%}
       {{ peers }}
 

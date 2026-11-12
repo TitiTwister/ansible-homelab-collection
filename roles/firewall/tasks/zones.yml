@@ -1,0 +1,27 @@
+---
+# Custom firewalld zones (zones that do not ship with firewalld, e.g. the
+# WireGuard tunnel zone on home-eu-ovpn). Only permanent configuration is
+# written; the Reload firewalld handler activates it at the end of the play.
+# Presence-only, like the rest of the role: removing an item from
+# firewall_zones does not delete the zone.
+
+# state=present with no parameter besides the zone is the module's
+# zone-level operation: it creates the zone when missing and reports
+# unchanged otherwise. Zone operations are permanent-only by firewalld
+# design, which this role already requires.
+- name: Create custom firewalld zones
+  ansible.posix.firewalld:
+    zone: "{{ item.name }}"
+    state: present
+    permanent: true
+  loop: "{{ firewall_zones }}"
+  notify: Reload firewalld
+
+- name: Bind interfaces to custom zones
+  ansible.posix.firewalld:
+    interface: "{{ item.interface }}"
+    zone: "{{ item.name }}"
+    permanent: true
+    state: enabled
+  loop: "{{ firewall_zones | selectattr('interface', 'defined') | list }}"
+  notify: Reload firewalld

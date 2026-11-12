@@ -14,6 +14,24 @@ wireguard_clients:
   - client1
   - client2
 
+# Static site-to-site peers: routed tunnels to remote gateways, unlike
+# the roaming clients above. A site peer brings its own keypair (only
+# the public key is configured here) and routes whole networks through
+# the tunnel, not just its own address. No key is generated for it on
+# the server and no client .conf is produced on the controller: the
+# remote gateway manages its own side.
+#
+#   name         REQUIRED — peer name (comment in the server config)
+#   ip           REQUIRED — the peer's address inside the VPN /24
+#   public_key   REQUIRED — the peer's WireGuard public key
+#   allowed_ips  OPTIONAL — networks routed to the peer, defaults to
+#                [ip/32] like a roaming client
+#
+# Site peers share the /24 with the roaming clients: pick a tunnel IP
+# beyond the client range (the server holds .1, wireguard_clients take
+# .2, .3, ... in list order) or renumber when the ranges collide.
+wireguard_site_peers: []
+
 # Client settings (full tunnel by default, like an OpenVPN
 # redirect-gateway setup)
 wireguard_dns:
