@@ -86,6 +86,10 @@
   ansible.builtin.file:
     path: "{{ item }}"
     state: absent
+  # The staging files are created and removed inside this task block;
+  # the authoritative artifacts are fetched to the control node, so the
+  # cleanup is not reported as a host change.
+  changed_when: false
   # The RBAC manifest holds no credentials; keeping it lets the render
   # converge instead of re-creating it on every run.
   loop:

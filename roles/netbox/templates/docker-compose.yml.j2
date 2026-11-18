@@ -3,6 +3,11 @@
 # persistent state lives on bind mounts under netbox_root (data disk)
 # and every service restarts with the daemon for unattended reboots.
 services:
+  # The build key belongs to the netbox service only: netbox-worker
+  # inherits it through the anchor, but a bare `docker compose build`
+  # would then build the same image twice (one per service label) and
+  # retag it with whichever export lands last. The role builds the
+  # `netbox` service explicitly; keep it that way if you add services.
   netbox: &netbox
     build:
       context: .

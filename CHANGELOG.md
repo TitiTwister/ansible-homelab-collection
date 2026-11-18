@@ -1,5 +1,39 @@
 # Changelog
 
+## v1.5.1 (2026-11-18)
+
+Idempotency fixes for the firewall, netbox and k8s roles.
+
+### Fixed
+- `firewall`: custom firewalld service definitions are now deployed once
+  per service name — the deploy loop deduplicates the rules on the
+  service, keeping the first definition. A service declared in several
+  zones (e.g. `http` internally and publicly) used to get its XML file
+  rewritten once per entry on every run, flip-flopping the file content
+  whenever the descriptions differed and reporting perpetual changes.
+- `netbox`: the local image build now runs with `--provenance=false`,
+  targets the `netbox` service explicitly and only runs when a build
+  input changed (or the image is missing). BuildKit attaches a fresh
+  provenance attestation to every build, and `netbox-worker` inherits
+  the `build` key from the compose anchor, so even a fully cached
+  rebuild produced a new image ID (built once per service, with the tag
+  landing on whichever export finished last) and compose replaced the
+  whole stack on every run. The stack is force-recreated when the
+  bind-mounted configuration changes, since those files are not part of
+  the compose config hash (only the `netbox` and `netbox-worker`
+  containers are recreated, not the data services).
+- `k8s`: the monitoring credentials staging files are reported as `ok`
+  instead of `changed` — they are created and removed inside the same
+  task block, the authoritative artifacts are fetched to the control node.
+- `openvpn`: the server now honors the DNS/route push variables. The
+  template no longer hardcodes public resolvers (`8.8.8.8`/`8.8.4.4`) and
+  an unconditional full tunnel: it renders `openvpn_push_dns` (new
+  default `[]`), `openvpn_push_search_domain` (new default `""`) and
+  `openvpn_redirect_gateway` (new default `false`). VPN clients that must
+  resolve split-horizon names need `openvpn_push_dns` pointing at the
+  internal resolvers; deployments that relied on the old unconditional
+  full tunnel need `openvpn_redirect_gateway: true`.
+
 ## v1.5.0 (2026-11-18)
 
 NetBox IPAM/DCIM source of truth, a shared Docker CE runtime role,

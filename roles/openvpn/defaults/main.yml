@@ -32,6 +32,16 @@ openvpn_keepalive: "10 120"
 openvpn_cipher: "AES-256-GCM"
 openvpn_tls_version_min: "1.2"
 
+# Options pushed to clients.
+# Resolvers and DNS suffix handed to the clients. Empty by default: the
+# clients keep their own resolvers. Point them at the lab resolvers when
+# clients must resolve internal (split-horizon) names over the tunnel.
+openvpn_push_dns: []
+openvpn_push_search_domain: ""
+# Route every client flow through the tunnel (full tunnel). When false
+# the client only routes the VPN subnet.
+openvpn_redirect_gateway: false
+
 # OpenVPN Server IPs (used by clients to connect)
 openvpn_server_public_ip: "198.51.100.1"
 openvpn_server_private_ip: "10.8.0.1"

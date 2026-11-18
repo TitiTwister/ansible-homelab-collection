@@ -12,6 +12,10 @@
     mode: "0755"
   when: firewall_rules | selectattr('service', 'defined') | selectattr('port', 'defined') | list | length > 0
 
+# Deploy one XML file per service name — the zone is not part of the
+# file, so a service declared in several zones would have its file
+# rewritten once per entry and flip-flop whenever the metadata differs.
+# Deduplicate on the service name; the first definition wins.
 - name: Deploy custom firewalld service definitions
   ansible.builtin.template:
     src: service.xml.j2
@@ -19,7 +23,11 @@
     owner: root
     group: root
     mode: "0644"
-  loop: "{{ firewall_rules | selectattr('service', 'defined') | selectattr('port', 'defined') | list }}"
+  loop: "{{ firewall_rules
+    | selectattr('service', 'defined')
+    | selectattr('port', 'defined')
+    | ansible.builtin.unique(attribute='service')
+    | list }}"
   notify: Reload firewalld
 
 - name: Reload firewalld to pick up custom service definitions

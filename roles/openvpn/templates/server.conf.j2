@@ -36,10 +36,16 @@ verb 3
 client-config-dir /etc/openvpn/ccd
 ccd-exclusive
 
-# Push DNS and routes to clients
-push "dhcp-option DNS 8.8.8.8"
-push "dhcp-option DNS 8.8.4.4"
+# Options pushed to clients
+{% for ns in openvpn_push_dns | default([]) %}
+push "dhcp-option DNS {{ ns }}"
+{% endfor %}
+{% if openvpn_push_search_domain | default('') | length > 0 %}
+push "dhcp-option DOMAIN {{ openvpn_push_search_domain }}"
+{% endif %}
+{% if openvpn_redirect_gateway | default(false) | bool %}
 push "redirect-gateway def1 bypass-dhcp"
+{% endif %}
 
 # Security settings
 user nobody

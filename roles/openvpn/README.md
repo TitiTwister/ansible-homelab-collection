@@ -31,6 +31,9 @@ Installs and configures an OpenVPN server. Pulls certificates and keys from the 
 | `openvpn_keepalive` | `10 120` | Keepalive ping settings. |
 | `openvpn_cipher` | `AES-256-GCM` | Data channel cipher. |
 | `openvpn_tls_version_min` | `1.2` | Minimum TLS version. |
+| `openvpn_push_dns` | `[]` | DNS resolvers pushed to clients (`dhcp-option DNS`). Empty leaves the client resolvers untouched. |
+| `openvpn_push_search_domain` | `""` | DNS suffix pushed to clients (`dhcp-option DOMAIN`). Empty pushes nothing. |
+| `openvpn_redirect_gateway` | `false` | Push `redirect-gateway def1 bypass-dhcp` (full tunnel). When `false` only the VPN subnet is routed. |
 | `openvpn_server_public_ip` | `198.51.100.1` | Public IP clients connect to. |
 | `openvpn_server_private_ip` | `10.8.0.1` | Private IP of the OpenVPN server. |
 
@@ -54,6 +57,14 @@ openvpn_cidr: "10.8.0.0/24"
 openvpn_clients:
   - client1
   - client2
+# Hand the internal resolvers to the clients and route everything through
+# the tunnel. Without these, clients keep their own DNS and only internal
+# names served by the lab (split-horizon) become unreachable.
+openvpn_push_dns:
+  - "192.0.2.53"
+  - "192.0.2.54"
+openvpn_push_search_domain: "lab.example.com"
+openvpn_redirect_gateway: true
 ```
 
 ## Notes
@@ -62,3 +73,5 @@ openvpn_clients:
 - Client certs, keys and `.ovpn` files are generated on the controller into `openvpn_client_config_dir`.
 - Use the `firewall` role to open `openvpn_port/udp` and enable masquerade for `openvpn_cidr`.
 - Enable `firewall_ip_forward: true` when routing VPN traffic to other networks.
+- `openvpn_push_dns` / `openvpn_push_search_domain` / `openvpn_redirect_gateway` are server-side pushes evaluated at connect time: re-run the role and reconnect the client, no need to regenerate the `.ovpn` files.
+- Pushed options are only applied by clients that honor DHCP options (Tunnelblick and the OpenVPN GUI do; a bare `openvpn` CLI needs an `up`/`down` script). If internal names still resolve to their public addresses, check the client's resolvers first.

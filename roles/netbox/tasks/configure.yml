@@ -55,9 +55,10 @@
       mode: "0755"
 
 - name: Deploy the plugin build inputs
-  # No handler: the deploy phase rebuilds on every run (cached by
-  # docker) and compose recreates the containers when the image
-  # changed, which is where the change is reported.
+  # Registered: the deploy phase only rebuilds when one of these (or
+  # the mounted plugins.py) changed. Compose recreates the containers
+  # when the resulting image changed, which is where the change is
+  # reported.
   ansible.builtin.template:
     src: "{{ item }}"
     dest: "{{ netbox_compose_dir }}/{{ item | basename | replace('.j2', '') }}"
@@ -67,6 +68,7 @@
   loop:
     - Dockerfile.j2
     - plugin_requirements.txt.j2
+  register: __netbox_build_inputs
 
 - name: Deploy the compose stack definition
   ansible.builtin.template:
@@ -108,6 +110,16 @@
       dest: configuration.py
     - src: configuration/plugins.py.j2
       dest: plugins.py
+  register: __netbox_mounted_config
+
+- name: Record the NetBox stack change state
+  # plugins.py is both baked into the image and bind-mounted, so a
+  # configuration change conservatively triggers a (cached) rebuild.
+  # Bind-mounted files are not part of the compose config hash, so the
+  # stack additionally needs an explicit recreate to pick them up.
+  ansible.builtin.set_fact:
+    __netbox_build_required: "{{ __netbox_build_inputs is changed or __netbox_mounted_config is changed }}"
+    __netbox_configuration_changed: "{{ __netbox_mounted_config is changed }}"
 
 - name: Deploy the housekeeping systemd units
   ansible.builtin.template:

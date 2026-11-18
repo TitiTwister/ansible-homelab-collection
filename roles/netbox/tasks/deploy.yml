@@ -1,20 +1,51 @@
 ---
-# Build the plugin image and converge the stack. `docker compose
-# build` is fully cached: it only produces a new image when the
-# Dockerfile or the plugin requirements changed, and `up` then
-# recreates the affected containers — which is where the change is
-# reported. The build itself is never reported as a change.
+# Build the plugin image and converge the stack. The build is skipped
+# when its inputs did not change (or when the image is missing), and a
+# cached rebuild keeps the same image ID, so `up` only recreates the
+# containers when the image really changed. The build itself is never
+# reported as a change.
+
+- name: Check whether the NetBox image is present
+  # The build is skipped when nothing changed, so a pruned or missing
+  # image (data-disk reset, docker image prune) must still be rebuilt.
+  ansible.builtin.command:
+    cmd: docker image inspect {{ netbox_image_name }}:{{ netbox_image_tag }}
+  register: __netbox_image
+  changed_when: false
+  failed_when: false
+  # Read-only probe used to decide the build: run it in check mode too,
+  # otherwise the registered result has no rc and the `when` fails.
+  check_mode: false
 
 - name: Build the NetBox image
+  # Build the `netbox` service explicitly: netbox-worker inherits the
+  # `build` key through the YAML anchor, so a bare `build` builds the
+  # image twice — once per service, with a different compose service
+  # label — and the tag ends up on whichever export finishes last. The
+  # worker uses the same image and does not need its own build.
+  #
+  # --provenance=false: BuildKit attaches a fresh provenance
+  # attestation on every build, which gives even a fully cached build a
+  # new image ID. Compose then sees a new image and replaces the stack.
+  # With provenance off, a cached rebuild is bit-identical, so the
+  # stack is only recreated on real changes.
   ansible.builtin.command:
-    cmd: docker compose --project-directory {{ netbox_compose_dir }} build
+    cmd: docker compose --project-directory {{ netbox_compose_dir }} build --provenance=false netbox
   register: __netbox_compose_build
   changed_when: false
+  when: __netbox_build_required | default(true) or __netbox_image.rc != 0
 
 - name: Bring up the NetBox stack
-  # compose v2 reports container lifecycle events on stderr.
+  # compose v2 reports container lifecycle events on stderr. The
+  # bind-mounted configuration is not part of the compose config hash,
+  # so a configuration change needs an explicit recreate to take effect.
+  # Restrict it to the two app containers: the data services do not read
+  # those files and must not be bounced.
   ansible.builtin.command:
-    cmd: docker compose --project-directory {{ netbox_compose_dir }} up --detach --remove-orphans
+    cmd: >-
+      docker compose --project-directory {{ netbox_compose_dir }}
+      up --detach --remove-orphans
+      {{ '--force-recreate netbox netbox-worker' if __netbox_configuration_changed | default(false) else '' }}
   register: __netbox_compose_up
   changed_when: >-
     (__netbox_compose_up.stdout ~ __netbox_compose_up.stderr)
