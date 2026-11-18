@@ -42,6 +42,9 @@
     -checkend {{ certificate_renewal_threshold }}
   register: certificate_cert_valid_check
   changed_when: false
+  # rc=1 ("Certificate will expire") is the renewal signal, not an error —
+  # any non-zero rc flows into the renewal path below.
+  failed_when: false
   become: true
   when: certificate_cert_file_stat.stat.exists
 

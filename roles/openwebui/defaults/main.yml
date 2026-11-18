@@ -24,12 +24,6 @@ openwebui_data_dir: /srv/openwebui/data
 # Configuration directory holding the container environment file
 openwebui_config_dir: /etc/openwebui
 
-# containerd data root (Docker 28 image store). Multi-GB images do
-# not fit the system volume: put it on the same data disk as
-# openwebui_data_dir. Keep it in sync with any other role managing
-# the container runtime on the same host (e.g. vllm).
-openwebui_containerd_root: /srv/containerd
-
 # Allow account self-registration. The first account created becomes
 # the administrator; flip to false (or use the admin panel) to lock
 # the instance down.

@@ -113,7 +113,7 @@ Backup tasks are tagged `backup`: use `--tags backup` to target them or
 
 ## Requirements
 
-- Rocky Linux / RHEL / AlmaLinux with the PGDG repository (installed by the role)
+- Rocky Linux / RHEL / AlmaLinux with the PGDG repository (installed and defined by the role; set `postgresql_pgdg_manage_repo: false` to manage the repository definition yourself)
 - A dedicated data disk per VM, configured via the `common` role's `disks` variable
 - The `firewall` role opens the required ports
 - For backups: an S3-compatible bucket and a dedicated access key

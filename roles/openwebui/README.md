@@ -8,7 +8,8 @@ but works with any OpenAI-compatible endpoint.
 
 ## Requirements
 
-- Rocky Linux 9/10 target host with Docker-ready repositories.
+- Rocky Linux 9/10 target host with the container runtime already
+  applied: the `docker` role, or `nvidia_docker` on GPU hosts.
 - A data volume for the SQLite database (accounts, chat history)
   mounted with the `common` role `disks` mechanism and referenced by
   `openwebui_data_dir` (e.g.
@@ -29,7 +30,6 @@ but works with any OpenAI-compatible endpoint.
 | `openwebui_openai_api_key` | `sk-openwebui` | API key sent to the backend; vLLM ignores it but Open WebUI requires one. |
 | `openwebui_data_dir` | `/srv/openwebui/data` | Persistent data (SQLite DB, uploads), on the data disk. |
 | `openwebui_config_dir` | `/etc/openwebui` | Directory holding the container environment file. |
-| `openwebui_containerd_root` | `/srv/containerd` | containerd data root (Docker 28 image store), on the data disk. |
 | `openwebui_enable_signup` | `true` | Allow account self-registration. The first account created becomes administrator. |
 | `openwebui_env` | `{}` | Extra container environment entries, appended verbatim. |
 | `openwebui_container_name` | `openwebui` | Fixed container name used by the systemd unit. |
@@ -55,11 +55,11 @@ but works with any OpenAI-compatible endpoint.
   false` or the admin panel.
 - `WEBUI_SECRET_KEY` is generated on first start and stored inside
   the data directory; it survives restarts and upgrades.
-- This role installs Docker CE but deliberately does **not** deploy
-  `daemon.json`: on GPU hosts the `nvidia_docker` role owns it (nvidia
-  runtime). Both roles template `/etc/containerd/config.toml` — keep
-  `openwebui_containerd_root` and `nvidia_docker_containerd_root`
-  identical on shared hosts.
+- This role does not install the container runtime: apply the
+  `docker` role first. On GPU hosts, `nvidia_docker` already provides
+  it and owns `daemon.json` (nvidia runtime). Relocating the
+  containerd image store to the data disk is the runtime role's job
+  (`docker_containerd_root` / `nvidia_docker_containerd_root`).
 - The systemd unit runs `docker run` in the foreground with
   `--pull=never`: image updates go through the role (pull task), not
   through implicit downloads at service start.

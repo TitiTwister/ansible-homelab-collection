@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: comfyui
+  namespace: tititwister
+  author: TitiTwister
+  description: ComfyUI diffusion server on NVIDIA GPU hosts (Docker, systemd, declarative model files)
+  license: Beerware
+  min_ansible_version: "2.18"
+  platforms:
+    - name: EL
+      versions: ["9", "10"]
+  galaxy_tags: [ai, diffusion, comfyui, nvidia, flux]
+dependencies:
+  - role: tititwister.homelab.nvidia_docker

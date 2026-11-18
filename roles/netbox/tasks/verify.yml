@@ -1,0 +1,38 @@
+---
+# Verify the deployment: the login page answers (the first start runs
+# database migrations inside the container, which takes a few
+# minutes) and every configured plugin is registered.
+
+- name: Wait for NetBox to answer on /login/
+  # localhost, not 127.0.0.1: the mounted configuration.py only
+  # force-allows the literal host `localhost` (besides the configured
+  # names) in ALLOWED_HOSTS — a 127.0.0.1 Host header gets a 400
+  # DisallowedHost.
+  ansible.builtin.uri:
+    url: "http://localhost:{{ netbox_listen_port }}/login/"
+  register: __netbox_login
+  until: __netbox_login.status == 200
+  retries: 30
+  delay: 10
+
+- name: Read the plugins registered in the NetBox settings
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - netbox
+      - /opt/netbox/venv/bin/python
+      - -c
+      - "import netbox.settings as s; print('\\n'.join(s.PLUGINS))"
+  register: __netbox_plugins
+  changed_when: false
+
+- name: Assert every configured plugin is loaded
+  ansible.builtin.assert:
+    that: __netbox_plugins_expected | difference(__netbox_plugins.stdout_lines) | length == 0
+    fail_msg: >-
+      Missing plugins in the NetBox container:
+      {{ __netbox_plugins_expected | difference(__netbox_plugins.stdout_lines) | join(', ') }}.
+      Check the build output of the custom image.
+  vars:
+    __netbox_plugins_expected: "{{ netbox_plugins | map(attribute='module') | list }}"

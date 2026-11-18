@@ -1,14 +1,15 @@
 ---
 namespace: tititwister
 name: homelab
-version: 1.4.0
+version: 1.5.0
 readme: README.md
 authors:
   - TitiTwister <https://github.com/TitiTwister>
 description: >-
   Ansible roles for running a homelab: PKI (step-ca), DNS (BIND),
   HAProxy, a full Prometheus/Grafana/Loki monitoring stack, a PostgreSQL
-  HA cluster (Patroni/etcd) and Kubernetes (kubeadm).
+  HA cluster (Patroni/etcd), Kubernetes (kubeadm) and a NetBox
+  IPAM/DCIM source of truth.
 license:
   - Beerware
 tags:

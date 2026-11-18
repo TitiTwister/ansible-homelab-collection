@@ -1,0 +1,128 @@
+---
+# NetBox compose project on the data disk: build context (Dockerfile
+# and plugin requirements), compose stack, container environment
+# files and the mounted configuration directory. Everything lives
+# under netbox_root so the whole stack lifts with the data volume.
+
+- name: Create the compose project directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ netbox_compose_dir }}"
+    - "{{ netbox_compose_dir }}/env"
+    - "{{ netbox_compose_dir }}/configuration"
+
+- name: Create the NetBox data directories
+  # Ownership matches the container users: the netbox image runs the
+  # app as `netbox:root` (uid 999, gid 0) with umask 002, so the app
+  # directories need group write; postgres:18-alpine runs as uid 70
+  # and its root entrypoint re-chowns the data directory anyway;
+  # valkey:9.1-alpine runs as uid 999, gid 1000.
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ netbox_root }}/media"
+      owner: "999"
+      group: "0"
+      mode: "0775"
+    - path: "{{ netbox_root }}/reports"
+      owner: "999"
+      group: "0"
+      mode: "0775"
+    - path: "{{ netbox_root }}/scripts"
+      owner: "999"
+      group: "0"
+      mode: "0775"
+    - path: "{{ netbox_root }}/postgres"
+      owner: "70"
+      group: "70"
+      mode: "0755"
+    - path: "{{ netbox_root }}/redis"
+      owner: "999"
+      group: "1000"
+      mode: "0755"
+    - path: "{{ netbox_root }}/redis-cache"
+      owner: "999"
+      group: "1000"
+      mode: "0755"
+
+- name: Deploy the plugin build inputs
+  # No handler: the deploy phase rebuilds on every run (cached by
+  # docker) and compose recreates the containers when the image
+  # changed, which is where the change is reported.
+  ansible.builtin.template:
+    src: "{{ item }}"
+    dest: "{{ netbox_compose_dir }}/{{ item | basename | replace('.j2', '') }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - Dockerfile.j2
+    - plugin_requirements.txt.j2
+
+- name: Deploy the compose stack definition
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ netbox_compose_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Deploy the container environment files
+  # no_log: with [diff] always = True in ansible.cfg, the diff would
+  # print every secret in these files to the terminal and
+  # log/ansible.log.
+  ansible.builtin.template:
+    src: "{{ item }}"
+    dest: "{{ netbox_compose_dir }}/env/{{ item | basename | replace('.j2', '') }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  loop:
+    - env/netbox.env.j2
+    - env/postgres.env.j2
+    - env/redis.env.j2
+    - env/redis-cache.env.j2
+
+- name: Deploy the mounted NetBox configuration
+  # The image's configuration loader imports every *.py from
+  # /etc/netbox/config in name order; plugins.py loads after
+  # configuration.py and wins.
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ netbox_compose_dir }}/configuration/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - src: configuration/configuration.py.j2
+      dest: configuration.py
+    - src: configuration/plugins.py.j2
+      dest: plugins.py
+
+- name: Deploy the housekeeping systemd units
+  ansible.builtin.template:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item | basename | replace('.j2', '') }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - netbox-housekeeping.service.j2
+    - netbox-housekeeping.timer.j2
+
+- name: Enable and start the housekeeping timer
+  ansible.builtin.systemd:
+    name: netbox-housekeeping.timer
+    state: started
+    enabled: true
+    daemon_reload: true

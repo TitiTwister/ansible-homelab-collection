@@ -1,0 +1,51 @@
+---
+# Default variables for comfyui role
+
+# ComfyUI boot image, pinned to a dated cu126-slim build: CUDA 12.6 is
+# the last CUDA line supporting Volta (sm_70) - the cu130 image line
+# does not run on a Tesla V100. The slim variant ships ComfyUI,
+# ComfyUI-Manager and the common custom-node Python dependencies
+# (including gguf).
+comfyui_image: "yanwk/comfyui-boot:cu126-slim-20260914"
+
+# Web UI / API port (published by the container)
+comfyui_port: 8188
+
+# Desired service state: "started" (default) or "stopped" to pause
+# ComfyUI and free the GPU for other workloads (e.g. vLLM). "stopped"
+# also disables the unit so a reboot does not re-grab the GPU. The
+# image, model files and configuration stay managed either way;
+# changes made while paused are applied on the next start.
+comfyui_state: started
+
+# Data directory on a data disk (common role `disks` mechanism):
+# models/, custom_nodes/, input/, output/, user/ and the pip caches
+# live here and survive container recreation.
+comfyui_data_dir: /srv/comfyui
+
+# HuggingFace token for gated model files (e.g. FLUX.1-dev weights);
+# empty means anonymous access. Provide via a vault file when needed.
+comfyui_hf_token: ""
+
+# Model files placed under <data>/models/<subdir>/. Each entry is
+# downloaded from https://huggingface.co/<repo>/resolve/main/<file>
+# and, when sha256 is pinned, verified against it - a file already
+# matching its checksum is left untouched.
+comfyui_models: []
+#   - subdir: unet
+#     repo: city96/FLUX.1-dev-gguf
+#     file: flux1-dev-Q4_K_S.gguf
+#     sha256: "75bb..."
+
+# Custom nodes cloned into <data>/custom_nodes/, pinned by version
+# (tag or commit). Their Python dependencies must ship in the image.
+comfyui_custom_nodes: []
+#   - name: ComfyUI-GGUF
+#     repo: https://github.com/city96/ComfyUI-GGUF
+#     version: 6ea2651e7df66d7585f6ffee804b20e92fb38b8a
+
+# Extra ComfyUI CLI arguments appended verbatim (e.g. --fp16-vae)
+comfyui_extra_args: []
+
+# Fixed container name used by the systemd unit
+comfyui_container_name: comfyui

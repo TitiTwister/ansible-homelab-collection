@@ -1,0 +1,21 @@
+---
+# Build the plugin image and converge the stack. `docker compose
+# build` is fully cached: it only produces a new image when the
+# Dockerfile or the plugin requirements changed, and `up` then
+# recreates the affected containers — which is where the change is
+# reported. The build itself is never reported as a change.
+
+- name: Build the NetBox image
+  ansible.builtin.command:
+    cmd: docker compose --project-directory {{ netbox_compose_dir }} build
+  register: __netbox_compose_build
+  changed_when: false
+
+- name: Bring up the NetBox stack
+  # compose v2 reports container lifecycle events on stderr.
+  ansible.builtin.command:
+    cmd: docker compose --project-directory {{ netbox_compose_dir }} up --detach --remove-orphans
+  register: __netbox_compose_up
+  changed_when: >-
+    (__netbox_compose_up.stdout ~ __netbox_compose_up.stderr)
+    is search('Created|Recreated|Started|Restarted')

@@ -1,0 +1,11 @@
+---
+# Default variables for the docker role
+
+# containerd data root (Docker 28 image store): image layers live in
+# containerd's data root, not in Docker's data-root. Leave empty to
+# skip /etc/containerd/config.toml entirely - containerd then keeps
+# its packaged root on the system volume. Set it to a path on a data
+# disk when multi-GB images do not fit the system volume (mounted with
+# the common role `disks` mechanism, e.g.
+# `inventories/<site>/group_vars/<group>/vars_docker.yml`).
+docker_containerd_root: ""

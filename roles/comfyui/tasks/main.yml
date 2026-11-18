@@ -1,0 +1,21 @@
+---
+# Main tasks for comfyui role. The NVIDIA driver and the Docker/NVIDIA
+# container runtime come from the nvidia_docker meta dependency.
+
+- name: Create data and model directories
+  ansible.builtin.import_tasks: directories.yml
+
+- name: Deploy model files
+  ansible.builtin.import_tasks: models.yml
+
+- name: Deploy custom nodes
+  ansible.builtin.import_tasks: custom_nodes.yml
+
+- name: Configure ComfyUI service
+  ansible.builtin.import_tasks: configure.yml
+
+- name: Apply configuration changes before verification
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify ComfyUI deployment
+  ansible.builtin.import_tasks: verify.yml

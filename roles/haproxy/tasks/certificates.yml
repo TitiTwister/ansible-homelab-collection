@@ -10,17 +10,27 @@
     group: root
     mode: "0755"
 
+# Reassemble on every run and swap only on content change: renewed
+# certificates must reach the bundle even though the PEM already exists.
 - name: Assemble HAProxy PEM bundles
   ansible.builtin.shell:
     cmd: |
       set -e
+      umask 077
+      pem="{{ haproxy_certs_dir }}/{{ item.name }}.pem"
+      tmp="{{ haproxy_certs_dir }}/{{ item.name }}.pem.tmp"
       cat {{ certificate_certs_path }}/{{ item.name }}.crt \
           {{ certificate_certs_path }}/{{ item.name }}-chain.crt \
           {{ certificate_private_path }}/{{ item.name }}.key \
-          > {{ haproxy_certs_dir }}/{{ item.name }}.pem.tmp
-      mv {{ haproxy_certs_dir }}/{{ item.name }}.pem.tmp \
-         {{ haproxy_certs_dir }}/{{ item.name }}.pem
-    creates: "{{ haproxy_certs_dir }}/{{ item.name }}.pem"
+          > "$tmp"
+      if [ -f "$pem" ] && cmp -s "$pem" "$tmp"; then
+        rm -f "$tmp"
+      else
+        mv "$tmp" "$pem"
+        echo updated
+      fi
+  register: haproxy_pem_assembly
+  changed_when: "'updated' in haproxy_pem_assembly.stdout"
   loop: "{{ certificate_certs | default([]) }}"
   loop_control:
     label: "{{ item.name }}"
@@ -35,3 +45,26 @@
   loop: "{{ certificate_certs | default([]) }}"
   loop_control:
     label: "{{ item.name }}"
+
+# HAProxy loads every file in the certificates directory, so bundles left
+# behind by removed certificates keep serving stale TLS for dead hostnames.
+- name: Find existing PEM bundles
+  ansible.builtin.find:
+    paths: "{{ haproxy_certs_dir }}"
+    patterns: "*.pem"
+  register: haproxy_existing_pems
+
+- name: Remove PEM bundles that are no longer managed
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  vars:
+    haproxy_managed_pem_paths: >-
+      {{ certificate_certs | default([]) | map(attribute='name')
+         | map('regex_replace', '^(.*)$', haproxy_certs_dir ~ '/\1.pem') | list }}
+  loop: >-
+    {{ haproxy_existing_pems.files | map(attribute='path') | list
+       | difference(haproxy_managed_pem_paths) }}
+  loop_control:
+    label: "{{ item | basename }}"
+  notify: Reload haproxy

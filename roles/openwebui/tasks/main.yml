@@ -1,8 +1,7 @@
 ---
-# Main tasks for the openwebui role
-
-- name: Install container runtime
-  ansible.builtin.import_tasks: install.yml
+# Main tasks for the openwebui role. The container runtime is not
+# installed here: apply the docker role first (nvidia_docker on GPU
+# hosts provides it).
 
 - name: Configure Open WebUI service
   ansible.builtin.import_tasks: configure.yml

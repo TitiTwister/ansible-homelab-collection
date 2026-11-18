@@ -1,8 +1,8 @@
 # tititwister.homelab
 
 Ansible roles for running a homelab: PKI, DNS, load balancing, monitoring,
-logging, a PostgreSQL HA cluster and Kubernetes. Targets EL-family systems
-(Rocky/Alma/RHEL 9).
+logging, a PostgreSQL HA cluster, Kubernetes and a NetBox IPAM/DCIM source
+of truth. Targets EL-family systems (Rocky/Alma/RHEL 9/10).
 
 Every role is environment-agnostic: no inventory groups, hostnames or
 networks are baked in. Site-specific values are injected from the inventory
@@ -15,13 +15,16 @@ example, see [ansible-play-homelab](https://github.com/TitiTwister/ansible-play-
 |---|---|
 | `tititwister.homelab.bind` | BIND authoritative DNS (primary/secondary) with RFC2136 dynamic updates |
 | `tititwister.homelab.certificate` | Certbot certificates against a step-ca ACME server |
+| `tititwister.homelab.comfyui` | ComfyUI diffusion web UI and API server on NVIDIA GPU hosts (pinned comfyui-boot image, declarative HuggingFace models, custom nodes) |
 | `tititwister.homelab.common` | Base host configuration: DNS resolvers, data disks |
 | `tititwister.homelab.dcgm_exporter` | NVIDIA DCGM exporter for GPU metrics (utilization, memory, temperature, power, ECC) |
+| `tititwister.homelab.docker` | Docker CE with the compose v2 plugin; optional containerd image-store relocation to the data disk |
 | `tititwister.homelab.firewall` | firewalld rules from inventory data |
 | `tititwister.homelab.grafana` | Grafana with provisioned datasources and dashboards |
 | `tititwister.homelab.haproxy` | HAProxy HTTP/TCP load balancer with TLS |
 | `tititwister.homelab.k8s` | Kubernetes cluster (kubeadm): control plane, workers, addons |
 | `tititwister.homelab.loki` | Loki log aggregation, single binary with filesystem storage |
+| `tititwister.homelab.netbox` | NetBox IPAM/DCIM source of truth (netbox-docker compose: netbox, rq worker, PostgreSQL, Valkey) with plugins baked into a locally built image |
 | `tititwister.homelab.node_exporter` | Prometheus node_exporter |
 | `tititwister.homelab.nvidia_docker` | NVIDIA driver (CUDA repo, DKMS) + Docker CE + NVIDIA Container Toolkit — shared GPU host runtime |
 | `tititwister.homelab.openvpn` | OpenVPN server with per-client configurations |

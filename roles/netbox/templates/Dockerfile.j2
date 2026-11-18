@@ -1,0 +1,20 @@
+# Custom NetBox image with the pinned plugins baked in, following the
+# netbox-docker plugin recipe (wiki: Using Netbox Plugins). The image
+# ships uv (VIRTUAL_ENV=/opt/netbox/venv is already set in its env),
+# so the requirements land in NetBox's own virtualenv.
+FROM netboxcommunity/netbox:{{ netbox_image_tag }}
+
+COPY plugin_requirements.txt /opt/netbox/
+RUN /usr/local/bin/uv pip install -r /opt/netbox/plugin_requirements.txt
+
+# netbox-topology-views expects its static image directory to exist
+# for the saved-coordinate icons (see the plugin README).
+RUN mkdir -p /opt/netbox/netbox/static/netbox_topology_views/img
+
+# Bake the plugin list into the image config and collect the plugin
+# static files. The dummy SECRET_KEY is only used for this build step.
+# At runtime the mounted configuration/ directory carries the same
+# plugins.py alongside the env-driven configuration.py.
+COPY configuration/plugins.py /etc/netbox/config/plugins.py
+RUN DEBUG="true" SECRET_KEY="dummydummydummydummydummydummydummydummydummydummy" \
+    /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py collectstatic --no-input

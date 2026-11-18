@@ -1,0 +1,6 @@
+# NetBox plugins baked into the custom image (installed by the
+# Dockerfile). The plugin modules are enabled in
+# configuration/plugins.py.
+{% for plugin in netbox_plugins %}
+{{ plugin.pip }}
+{% endfor %}

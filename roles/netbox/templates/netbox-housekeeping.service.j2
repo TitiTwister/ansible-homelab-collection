@@ -1,0 +1,10 @@
+[Unit]
+# Managed by Ansible - daily NetBox housekeeping (expired changelog,
+# session and cache cleanup), see the NetBox administration docs.
+Description=NetBox housekeeping
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker exec netbox /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py housekeeping

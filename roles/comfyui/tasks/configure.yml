@@ -1,0 +1,46 @@
+---
+# ComfyUI service: pinned container image, systemd-managed container.
+# Data and model directories are created by directories.yml before any
+# content lands.
+
+- name: Pull the ComfyUI image
+  # Layer downloads from Docker Hub are prone to transient connection
+  # resets; docker resumes already-downloaded layers on retry.
+  ansible.builtin.command:
+    cmd: docker pull {{ comfyui_image }}
+  register: comfyui_image_pull
+  until: comfyui_image_pull.rc == 0
+  retries: 5
+  delay: 30
+  changed_when: "'Downloaded newer image' in comfyui_image_pull.stdout"
+
+- name: Deploy ComfyUI systemd service
+  ansible.builtin.template:
+    src: comfyui.service.j2
+    dest: /etc/systemd/system/comfyui.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart comfyui
+
+- name: Manage ComfyUI service state
+  # "stopped" pauses ComfyUI and frees the GPU: the unit is also
+  # disabled so a reboot does not re-grab it. The restart handler is
+  # gated the same way, so configuration changes made while paused
+  # apply on the next start.
+  ansible.builtin.systemd:
+    name: comfyui
+    state: "{{ comfyui_state }}"
+    enabled: "{{ comfyui_state == 'started' }}"
+    daemon_reload: true
+
+- name: Clear residual failed state on the paused unit
+  # Belt-and-braces with SuccessExitStatus in the unit file: a stop
+  # before that fix could leave the unit flagged "failed". reset-failed
+  # is idempotent and only runs while paused.
+  ansible.builtin.command:
+    cmd: systemctl reset-failed comfyui
+  register: comfyui_reset_failed
+  when: comfyui_state == 'stopped'
+  changed_when: false
+  failed_when: comfyui_reset_failed.rc not in [0, 1]

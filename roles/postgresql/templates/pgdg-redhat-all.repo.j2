@@ -1,0 +1,26 @@
+# Managed by Ansible (tititwister.homelab.postgresql) — local changes are
+# overwritten on the next run.
+#
+# The upstream pgdg-redhat-repo definition points baseurls at
+# rhel-$releasever_major.$releasever_minor-$basearch (e.g. rhel-10.0), but
+# PGDG does not publish every OS minor release — rhel-10.1 and later exist
+# while rhel-10.0 does not — so hosts on a .0 release fail every metadata
+# refresh with "All mirrors were tried". This definition pins the evergreen
+# major-version layout instead and only enables the sections this role
+# needs.
+
+[pgdg-common]
+name=PostgreSQL common RPMs for RHEL / Rocky / AlmaLinux {{ ansible_facts.distribution_major_version }} - $basearch
+baseurl=https://download.postgresql.org/pub/repos/yum/common/redhat/rhel-{{ ansible_facts.distribution_major_version }}-$basearch
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL
+repo_gpgcheck=1
+
+[pgdg{{ postgresql_version | replace('.', '') }}]
+name=PostgreSQL {{ postgresql_version }} for RHEL / Rocky / AlmaLinux {{ ansible_facts.distribution_major_version }} - $basearch
+baseurl=https://download.postgresql.org/pub/repos/yum/{{ postgresql_version | replace('.', '') }}/redhat/rhel-{{ ansible_facts.distribution_major_version }}-$basearch
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL
+repo_gpgcheck=1

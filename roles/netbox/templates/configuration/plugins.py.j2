@@ -1,0 +1,18 @@
+# Managed by Ansible. The netbox-docker configuration loader imports
+# every *.py from /etc/netbox/config in name order; this file loads
+# after configuration.py and overrides it.
+PLUGINS = [
+{% for plugin in netbox_plugins %}
+    "{{ plugin.module }}",
+{% endfor %}
+]
+
+PLUGINS_CONFIG = {
+{% for name, config in netbox_plugins_config.items() %}
+    "{{ name }}": {
+{% for key, value in config.items() %}
+        "{{ key }}": {{ value | pprint }},
+{% endfor %}
+    },
+{% endfor %}
+}

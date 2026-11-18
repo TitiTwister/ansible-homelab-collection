@@ -1,0 +1,38 @@
+---
+# Custom nodes: git clones pinned by version (tag or commit sha).
+# Their Python dependencies must ship in the image - the cu126-slim
+# line bundles the common ones (gguf for ComfyUI-GGUF, Insight Pack
+# deps, etc.). ComfyUI-Manager installs go to /root/.local, which is
+# on a persistent volume.
+
+- name: Validate custom node entries
+  ansible.builtin.assert:
+    that:
+      - item.name is defined
+      - item.repo is defined
+      - item.version is defined
+    fail_msg: >-
+      comfyui_custom_nodes entries need name, repo and version;
+      got keys [{{ item.keys() | join(', ') }}]
+  loop: "{{ comfyui_custom_nodes }}"
+  loop_control:
+    label: "{{ item.name | default('invalid entry') }}"
+
+- name: Install git
+  # Required by the clone task below; only pulled in when custom
+  # nodes are declared.
+  ansible.builtin.dnf:
+    name: git
+    state: present
+  when: comfyui_custom_nodes | length > 0
+
+- name: Clone custom nodes
+  # Pinning by tag/commit and re-running the role resets nodes updated
+  # in-place through ComfyUI-Manager back to the declared version.
+  ansible.builtin.git:
+    repo: "{{ item.repo }}"
+    dest: "{{ comfyui_data_dir }}/custom_nodes/{{ item.name }}"
+    version: "{{ item.version }}"
+  loop: "{{ comfyui_custom_nodes }}"
+  loop_control:
+    label: "{{ item.name }}"

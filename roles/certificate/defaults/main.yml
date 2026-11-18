@@ -15,7 +15,6 @@ certificate_certbot_propagation_seconds: 10
 certificate_dns_server: "{{ dns_nameservers[0] | default('192.168.1.1') }}"
 
 # Certificate defaults
-certificate_default_duration: "2160h"
 certificate_key_size: 2048
 
 # Root CA download URL
@@ -26,10 +25,10 @@ certificate_root_ca_file: "root_ca.crt"
 certificate_certs_path: "/etc/ssl/certs"
 certificate_private_path: "/etc/ssl/private"
 
-# Certificate validity threshold in seconds (default: 10 days)
+# Certificate validity threshold in seconds (default: 30 days)
 # If existing cert expires after this many seconds, skip re-issuance
-certificate_renewal_threshold: 864000
+certificate_renewal_threshold: 2592000
 
 # List of certificates to request
-# Each item: {name, common_name, san: [list of SANs], duration: optional}
+# Each item: {name, common_name, san: [list of SANs]}
 certificate_certs: []

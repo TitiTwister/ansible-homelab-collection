@@ -1,0 +1,25 @@
+---
+# Verify the deployment end to end: the driver sees the GPU, and the
+# ComfyUI API answers. The first start copies the bundled ComfyUI tree
+# into the persistent storage, which takes a moment.
+
+- name: Report the GPU seen by the driver
+  ansible.builtin.command:
+    cmd: nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+  register: comfyui_gpu_info
+  changed_when: false
+  failed_when: comfyui_gpu_info.rc != 0
+
+- name: Show detected GPU
+  ansible.builtin.debug:
+    msg: "ComfyUI GPU: {{ comfyui_gpu_info.stdout_lines | join(', ') }}"
+
+- name: Wait for ComfyUI to answer its API
+  # Skipped while paused (comfyui_state == "stopped").
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ comfyui_port }}/system_stats"
+  register: comfyui_stats
+  until: comfyui_stats.status == 200
+  retries: 60
+  delay: 5
+  when: comfyui_state == 'started'

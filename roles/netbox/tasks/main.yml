@@ -1,0 +1,22 @@
+---
+# Main tasks for the netbox role. The container runtime is not
+# installed here: apply the docker role first, with its containerd
+# image store on the same data disk.
+
+- name: Validate the NetBox input
+  ansible.builtin.import_tasks: validate.yml
+
+- name: Configure the NetBox compose project
+  ansible.builtin.import_tasks: configure.yml
+
+- name: Apply pending runtime changes before deploying
+  # flush_handlers is play-scoped: it also fires the pending
+  # `Restart containerd` from the docker role, before the deploy
+  # phase builds the image.
+  ansible.builtin.meta: flush_handlers
+
+- name: Deploy the NetBox stack
+  ansible.builtin.import_tasks: deploy.yml
+
+- name: Verify the NetBox deployment
+  ansible.builtin.import_tasks: verify.yml

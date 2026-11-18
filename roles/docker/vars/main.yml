@@ -1,0 +1,12 @@
+---
+# Internal constants for the docker role
+
+# Docker CE only: no GPU bits here (the nvidia_docker role adds the
+# NVIDIA Container Toolkit and owns daemon.json on GPU hosts). The
+# compose plugin ships `docker compose` v2; buildx is not needed
+# (compose v2 builds with buildkit).
+__docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-compose-plugin

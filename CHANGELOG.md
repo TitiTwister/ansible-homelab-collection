@@ -1,5 +1,79 @@
 # Changelog
 
+## v1.5.0 (2026-11-18)
+
+NetBox IPAM/DCIM source of truth, a shared Docker CE runtime role,
+and a ComfyUI diffusion workbench on GPU hosts.
+
+### Added
+- `comfyui`: new role — ComfyUI node-based diffusion web UI and API
+  server on NVIDIA GPU hosts: the `yanwk/comfyui-boot` image under a
+  systemd unit on top of the `nvidia_docker` runtime, model files
+  downloaded declaratively from HuggingFace (sha256-pinned, gated
+  files through `comfyui_hf_token`), custom nodes cloned at pinned
+  versions, and all persistent state under one data-disk directory.
+  `comfyui_state: stopped` pauses the service and frees the GPU for
+  another workload (e.g. `vllm`) without dropping management.
+- `docker`: new role — Docker CE from the upstream repository with the
+  compose v2 plugin, extracted from the container workload roles.
+  Relocating the containerd image store (Docker 28) to a data disk is
+  opt-in through `docker_containerd_root`: empty leaves containerd on
+  its packaged root and skips `/etc/containerd/config.toml` entirely.
+  Does not deploy `daemon.json` (on GPU hosts, `nvidia_docker` owns
+  it and provides the whole runtime).
+- `netbox`: new role — NetBox via the netbox-docker compose stack
+  (netbox + rq worker, PostgreSQL 18, Valkey 9.1 ×2 for the task
+  queue and the cache), with plugins baked into a locally built image
+  (netbox-topology-views, netbox-data-flows, pinned). All persistent
+  state lives on bind mounts under one data-disk root so the stack
+  lifts with the volume; the initial superuser is created idempotently
+  by the container entrypoint; and a host systemd timer runs the daily
+  `manage.py housekeeping` that current netbox-docker releases no
+  longer ship a container for.
+
+### Changed
+- `openwebui`: no longer installs Docker CE itself — apply the new
+  `docker` role first (`nvidia_docker` already provides the runtime
+  on GPU hosts). `openwebui_containerd_root` is gone; set
+  `docker_containerd_root` instead.
+- `certificate`: `certificate_renewal_threshold` raised from 10 to 30
+  days of validity headroom before re-issuance, and the never-consumed
+  `certificate_default_duration` / per-cert `duration` settings removed —
+  certbot runs without a lifetime option, so the step-ca
+  `defaultTLSCertDuration` governs how long certificates are valid.
+
+### Fixed
+- `openvpn`: the CA-chain move/remove pair in `fetch_certs` ran on
+  every run instead of only after the bootstrap extraction — once
+  `ca.crt` was in place, every subsequent run failed with
+  `Source /etc/openvpn/ca-chain.crt not found`, which also silently
+  skipped the `wireguard` role on the same host in full site runs.
+  Both tasks now live inside the bootstrap block.
+- `haproxy`: PEM bundle assembly used `creates:` on the destination
+  file, so renewed certificates never reached existing bundles —
+  certificates were refreshed on disk while HAProxy kept serving the
+  stale PEMs until they expired. Bundles are now reassembled on every
+  run and only swapped (and the reload notified) when the content
+  changes; PEM files left behind by removed `certificate_certs`
+  entries are cleaned up instead of being served indefinitely by the
+  `crt` directory bind.
+- `postgresql`: the PGDG repository definition points baseurls at
+  `rhel-$releasever_major.$releasever_minor`, but PGDG does not publish
+  every OS minor release — Rocky 10.0 hosts resolve to `rhel-10.0`, which
+  does not exist — so every dnf transaction failed with "All mirrors were
+  tried". The role now deploys a managed
+  `/etc/yum.repos.d/pgdg-redhat-all.repo` pinned to the evergreen
+  `rhel-<major>-$basearch` layout and enabling only `pgdg-common` plus
+  the `postgresql_version` major repository (opt out with
+  `postgresql_pgdg_manage_repo: false`); the repo RPM install itself
+  runs with `disablerepo: pgdg*` so it succeeds even while the broken
+  definition is still in place.
+- `certificate`: the validity check treated an `openssl -checkend` rc=1
+  (certificate inside the renewal window) as a task failure and aborted
+  the play instead of renewing, so in-place renewal never worked —
+  deleting the certificate files to force re-issuance was the only
+  refresh path. rc=1 now flows into the existing renewal path.
+
 ## v1.4.0 (2026-11-11)
 
 Site-to-site WireGuard peers and the firewalld transit policy they need.

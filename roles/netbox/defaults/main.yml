@@ -1,0 +1,74 @@
+---
+# Default variables for the netbox role
+
+# Upstream image line to build from. netbox-docker tags have the form
+# v<netbox>-<netbox-docker>: both halves matter, the support files of
+# the image must match the compose/env layout this role deploys
+# (netbox-docker 5.1.x tracks NetBox 4.7).
+netbox_image_tag: "v4.7-5.1.2"
+
+# Name of the locally built image carrying the plugins. It is built
+# from the Dockerfile in the compose directory and never pulled,
+# hence the local/ prefix.
+netbox_image_name: "local/netbox"
+
+# Database and queue backends, pinned like the upstream compose stack.
+netbox_postgres_version: "18"
+netbox_valkey_version: "9.1"
+
+# NetBox plugins baked into the image. `pip` is a requirement line
+# (pin the version); `module` is the Django app name NetBox imports
+# (the pip package name is not always the module name).
+netbox_plugins:
+  - pip: netbox-topology-views==5.0.2
+    module: netbox_topology_views
+  - pip: netbox-data-flows==1.6.0
+    module: netbox_data_flows
+
+# Plugin settings rendered into configuration/plugins.py.
+netbox_plugins_config:
+  netbox_topology_views:
+    allow_coordinates_saving: true
+    always_save_coordinates: true
+
+# Host port publishing the container's 8080 (granian).
+netbox_listen_port: 8000
+
+# Root of the deployment on the data disk: compose project and all
+# persistent state. Mount the data volume there
+# with the common role `disks` mechanism (e.g.
+# `inventories/<site>/group_vars/<group>/vars_disks.yml`) — a VM
+# rebuild then reattaches one volume and the stack comes back.
+netbox_root: /var/lib/netbox
+
+# Compose project directory (Dockerfile, compose file, env/ and
+# configuration/); it is also the docker build context.
+netbox_compose_dir: "{{ netbox_root }}/docker"
+
+# Hostnames NetBox answers for (ALLOWED_HOSTS, space separated):
+# the load-balancer name first, plus anything that reaches it
+# directly (host IP for health checks).
+netbox_allowed_hosts: []
+
+# Origins allowed to POST forms (CSRF_TRUSTED_ORIGINS): the https://
+# scheme is required by Django 4+.
+netbox_csrf_trusted_origins: []
+
+# Initial superuser, created by the container entrypoint when the
+# account does not exist yet (SKIP_SUPERUSER=false).
+netbox_superuser_name: admin
+netbox_superuser_email: admin@example.com
+
+# Secrets, set from the vault in the inventory:
+#   netbox_secret_key         — Django SECRET_KEY (50+ random chars)
+#   netbox_postgres_password  — PostgreSQL netbox user password
+#   netbox_redis_password     — Valkey auth password (both instances)
+#   netbox_superuser_password — initial superuser password
+netbox_secret_key: ""
+netbox_postgres_password: ""
+netbox_redis_password: ""
+netbox_superuser_password: ""
+
+# Housekeeping (changelog/session pruning, cache cleanup) runs daily
+# through a systemd timer on the host.
+netbox_housekeeping_on_calendar: "*-*-* 04:00:00"

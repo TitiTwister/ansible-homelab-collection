@@ -1,0 +1,36 @@
+[Unit]
+Description=ComfyUI diffusion server ({{ comfyui_image }})
+Documentation=https://github.com/comfyanonymous/ComfyUI
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+# Remove a stale container left behind by an unclean docker client exit
+ExecStartPre=-/usr/bin/docker rm -f {{ comfyui_container_name }}
+# CLI_ARGS is appended by the image entrypoint after its own
+# --listen --port 8188 defaults; a repeated --port wins (argparse
+# last-wins), so the published port always matches.
+ExecStart=/usr/bin/docker run \
+  --name {{ comfyui_container_name }} \
+  --runtime nvidia \
+  --gpus all \
+  --ipc=host \
+  --pull=never \
+  -p {{ comfyui_port }}:{{ comfyui_port }} \
+{% for volume in __comfyui_volumes %}
+  -v {{ comfyui_data_dir }}/{{ volume.local }}:{{ volume.container }} \
+{% endfor %}
+  --env "CLI_ARGS=--port {{ comfyui_port }}{% if comfyui_extra_args | length > 0 %} {{ comfyui_extra_args | join(' ') }}{% endif %}" \
+  {{ comfyui_image }}
+ExecStop=/usr/bin/docker stop {{ comfyui_container_name }}
+# docker run exits with the container's code when it stops: 143 on
+# SIGTERM, 137 on SIGKILL. Without this, a clean pause flip leaves the
+# unit in "failed" state.
+SuccessExitStatus=143 137
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

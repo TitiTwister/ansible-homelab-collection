@@ -1,11 +1,26 @@
 ---
 # Install PostgreSQL, Patroni and etcd from PGDG / distribution repositories
 
+# dnf refreshes enabled-repo metadata even for a direct-URL install, so this
+# transaction must not consult PGDG: on hosts still carrying the broken
+# per-minor repository definition it would fail before the template task
+# below can repair it. The glob covers pgdg-common and pgdg<major>.
 - name: Install PGDG repository RPM
   ansible.builtin.dnf:
     name: "{{ postgresql_pgdg_repo_url }}"
     state: present
     disable_gpg_check: true
+    disablerepo: "pgdg*"
+  become: true
+
+- name: Deploy managed PGDG repository definition
+  ansible.builtin.template:
+    src: pgdg-redhat-all.repo.j2
+    dest: /etc/yum.repos.d/pgdg-redhat-all.repo
+    owner: root
+    group: root
+    mode: "0644"
+  when: postgresql_pgdg_manage_repo | bool
   become: true
 
 - name: Install PostgreSQL server and contrib packages

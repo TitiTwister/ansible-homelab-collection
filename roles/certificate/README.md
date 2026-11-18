@@ -27,13 +27,12 @@ Certificates are stored in `/etc/ssl/certs/` and private keys in `/etc/ssl/priva
 | `certificate_certbot_credentials_path` | `/etc/letsencrypt/rfc2136.ini` | Path to RFC2136 credentials file. |
 | `certificate_certbot_propagation_seconds` | `10` | Seconds to wait after DNS update before validation. |
 | `certificate_dns_server` | `{{ dns_nameservers[0] }}` | DNS server used for RFC2136 updates. |
-| `certificate_default_duration` | `2160h` | Default certificate lifetime. |
 | `certificate_key_size` | `2048` | Private key size. |
 | `certificate_root_ca_url` | `https://{{ certificate_step_ca_url }}/roots.pem` | URL to download root CA certificate. |
 | `certificate_root_ca_file` | `root_ca.crt` | Filename of the root CA certificate. |
 | `certificate_certs_path` | `/etc/ssl/certs` | Where to install certificates. |
 | `certificate_private_path` | `/etc/ssl/private` | Where to install private keys. |
-| `certificate_renewal_threshold` | `864000` | If existing cert is valid for longer than this (seconds), skip re-issue. Default 10 days. |
+| `certificate_renewal_threshold` | `2592000` | If existing cert is valid for longer than this (seconds), skip re-issue. Default 30 days. |
 | `certificate_certs` | `[]` | List of certificates to request. |
 
 ### Certificate list format
@@ -47,13 +46,15 @@ certificate_certs:
     san:
       - "prom-1.example.com"
       - "prom-2.example.com"
-    duration: "8760h"
 ```
 
 - `name` (required): Short name used for filenames and certbot `--cert-name`.
 - `common_name` (required): Primary CN of the certificate.
 - `san` (optional): List of Subject Alternative Names.
-- `duration` (optional): Certificate lifetime. Falls back to `certificate_default_duration` if not set.
+
+Certificate lifetime is not requested by the role: certbot runs without a
+duration option, so the step-ca `defaultTLSCertDuration` governs how long
+issued certificates are valid.
 
 ## Dependencies
 
@@ -81,16 +82,14 @@ certificate_certs:
     san:
       - "prom-1.example.com"
       - "prom-2.example.com"
-    duration: "8760h"
 
   - name: alertmanager
     common_name: "alertmanager.example.com"
-    duration: "720h"
 ```
 
 ## Idempotency
 
-The role checks whether `/etc/ssl/certs/{{ cert.name }}.crt` exists and is still valid for at least `certificate_renewal_threshold` seconds (default 10 days). If so, certbot is skipped.
+The role checks whether `/etc/ssl/certs/{{ cert.name }}.crt` exists and is still valid for at least `certificate_renewal_threshold` seconds (default 30 days). If so, certbot is skipped.
 
 If the certificate is missing or near expiry, the role removes the stale certbot state for that cert name and requests a new certificate.
 

@@ -1,0 +1,11 @@
+[Unit]
+# Managed by Ansible - triggers the daily NetBox housekeeping service.
+Description=Daily NetBox housekeeping
+
+[Timer]
+OnCalendar={{ netbox_housekeeping_on_calendar }}
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

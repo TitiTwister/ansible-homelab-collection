@@ -1,0 +1,39 @@
+---
+# Model files: declarative downloads from HuggingFace into the
+# ComfyUI models tree, verified by sha256 when pinned. A file already
+# matching its checksum is left untouched; without a pin the download
+# relies on HTTP metadata (weaker idempotence - pin gated files after
+# the first fetch: sha256sum on the host, or the LFS oid from the
+# HuggingFace file page).
+
+- name: Validate model entries
+  ansible.builtin.assert:
+    that:
+      - item.subdir is defined
+      - item.repo is defined
+      - item.file is defined
+    fail_msg: >-
+      comfyui_models entries need subdir, repo and file;
+      got keys [{{ item.keys() | join(', ') }}]
+  loop: "{{ comfyui_models }}"
+  loop_control:
+    label: "{{ item.file | default('invalid entry') }}"
+
+- name: Download model files
+  # get_url has no partial resume: a failed multi-GB download restarts
+  # from zero, bounded by the retry budget. Transient connection
+  # resets are common on multi-GB transfers.
+  ansible.builtin.get_url:
+    url: "https://huggingface.co/{{ item.repo }}/resolve/main/{{ item.file }}"
+    dest: "{{ comfyui_data_dir }}/models/{{ item.subdir }}/{{ item.file }}"
+    checksum: "{{ ('sha256:' ~ item.sha256) if item.sha256 is defined else omit }}"
+    headers: "{{ __comfyui_hf_headers }}"
+    mode: "0644"
+    timeout: 600
+  loop: "{{ comfyui_models }}"
+  loop_control:
+    label: "{{ item.file }}"
+  register: comfyui_model_fetch
+  until: comfyui_model_fetch is not failed
+  retries: 5
+  delay: 30

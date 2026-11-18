@@ -1,0 +1,33 @@
+---
+# Internal constants for comfyui role
+
+# Persistent directories under comfyui_data_dir, bind-mounted into the
+# container at the upstream yanwk/comfyui-boot layout: ComfyUI state
+# (models, custom nodes, in/outputs, user profile) plus pip/user
+# caches so ComfyUI-Manager installs survive container recreation.
+# ComfyUI itself is NOT mounted: the image entrypoint copies the
+# bundled ComfyUI tree on first start, keeping the version pinned by
+# the image.
+__comfyui_volumes:
+  - local: models
+    container: /root/ComfyUI/models
+  - local: custom_nodes
+    container: /root/ComfyUI/custom_nodes
+  - local: input
+    container: /root/ComfyUI/input
+  - local: output
+    container: /root/ComfyUI/output
+  - local: user
+    container: /root/ComfyUI/user
+  - local: dot-cache
+    container: /root/.cache
+  - local: dot-local
+    container: /root/.local
+  - local: user-scripts
+    container: /root/user-scripts
+
+# Authorization header for gated HuggingFace downloads; no header
+# when no token is configured.
+__comfyui_hf_headers: >-
+  {{ {'Authorization': 'Bearer ' ~ comfyui_hf_token}
+     if comfyui_hf_token | default('') | length > 0 else {} }}

@@ -13,6 +13,15 @@ postgresql_pgdg_repo_url: >-
   https://download.postgresql.org/pub/repos/yum/reporpms/EL-{{
   ansible_facts.distribution_major_version }}-x86_64/pgdg-redhat-repo-latest.noarch.rpm
 
+# The repo RPM only ships repository definitions and the signing key. Those
+# definitions point baseurls at rhel-$releasever_major.$releasever_minor,
+# but PGDG does not publish every OS minor release (rhel-10.1 and later
+# exist, rhel-10.0 does not), so hosts on a .0 release fail metadata
+# refreshes with "All mirrors were tried". Deploy a managed definition
+# pinned to the evergreen rhel-<major> layout instead (see
+# templates/pgdg-redhat-all.repo.j2).
+postgresql_pgdg_manage_repo: true
+
 # Packages to install via dnf
 postgresql_packages:
   - "postgresql{{ postgresql_version | replace('.', '') }}-server"

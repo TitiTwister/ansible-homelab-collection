@@ -1,0 +1,106 @@
+# Managed by Ansible — netbox-docker compose stack, adapted from the
+# upstream release branch: the app image is built locally (plugins),
+# persistent state lives on bind mounts under netbox_root (data disk)
+# and every service restarts with the daemon for unattended reboots.
+services:
+  netbox: &netbox
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: {{ netbox_image_name }}:{{ netbox_image_tag }}
+    pull_policy: never
+    container_name: netbox
+    restart: unless-stopped
+    user: "netbox:root"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+    env_file: env/netbox.env
+    healthcheck:
+      # First boot runs the database migrations inside the container
+      # before granian answers /login/; a fresh stack takes 1-3+
+      # minutes. The start_period grace must cover it or compose
+      # declares the container unhealthy and never starts
+      # netbox-worker.
+      test: /opt/netbox/health.sh
+      start_period: 300s
+      timeout: 3s
+      interval: 15s
+      retries: 3
+    ports:
+      - "{{ netbox_listen_port }}:8080"
+    volumes:
+      - ./configuration:/etc/netbox/config:z,ro
+      - {{ netbox_root }}/media:/opt/netbox/netbox/media:z,rw
+      - {{ netbox_root }}/reports:/opt/netbox/netbox/reports:z,rw
+      - {{ netbox_root }}/scripts:/opt/netbox/netbox/scripts:z,rw
+
+  netbox-worker:
+    <<: *netbox
+    container_name: netbox-worker
+    ports: []
+    depends_on:
+      netbox:
+        condition: service_healthy
+    command:
+      - /opt/netbox/venv/bin/python
+      - /opt/netbox/netbox/manage.py
+      - rqworker
+    healthcheck:
+      test: ps -aux | grep -v grep | grep -q rqworker || exit 1
+      start_period: 20s
+      timeout: 3s
+      interval: 15s
+
+  # postgres
+  postgres:
+    image: docker.io/postgres:{{ netbox_postgres_version }}-alpine
+    container_name: netbox-postgres
+    restart: unless-stopped
+    healthcheck:
+      test: pg_isready -q -t 2 -d $$POSTGRES_DB -U $$POSTGRES_USER
+      start_period: 20s
+      timeout: 30s
+      interval: 10s
+      retries: 5
+    env_file: env/postgres.env
+    volumes:
+      - {{ netbox_root }}/postgres:/var/lib/postgresql:z
+
+  # valkey — RQ task queue (persisted) and cache (volatile)
+  redis:
+    image: docker.io/valkey/valkey:{{ netbox_valkey_version }}-alpine
+    container_name: netbox-redis
+    restart: unless-stopped
+    # image user `valkey` (uid 999, gid 1000): no root in the container
+    user: "999:1000"
+    command:
+      - sh
+      - -c # this is to evaluate the $REDIS_PASSWORD from the env
+      - valkey-server --appendonly yes --requirepass $$REDIS_PASSWORD
+    healthcheck: &valkey-healthcheck
+      test: '[ $$(valkey-cli --pass "$${REDIS_PASSWORD}" ping) = ''PONG'' ]'
+      start_period: 5s
+      timeout: 3s
+      interval: 1s
+      retries: 5
+    env_file: env/redis.env
+    volumes:
+      - {{ netbox_root }}/redis:/data:z
+  redis-cache:
+    image: docker.io/valkey/valkey:{{ netbox_valkey_version }}-alpine
+    container_name: netbox-redis-cache
+    restart: unless-stopped
+    user: "999:1000"
+    command:
+      - sh
+      - -c # this is to evaluate the $REDIS_PASSWORD from the env
+      - valkey-server --requirepass $$REDIS_PASSWORD
+    healthcheck: *valkey-healthcheck
+    env_file: env/redis-cache.env
+    volumes:
+      - {{ netbox_root }}/redis-cache:/data:z
